@@ -1,34 +1,35 @@
 # Hermes → pi-go parity status (2026-09-16)
 
-Branch: `cursor/docker-file-remoting-parity-f711` (draft PR after merged #9).
+Branch: `cursor/acp-result-text-parity-3ed7` (draft PR on `main` after squash-merge #10 / `6b1f546`).
 
 ## Closed in this PR
 
-### Docker file-tool remoting (worker sidecar)
-- Executor children with an active per-run container (`PI_WORKER_DOCKER_*`) route **read / write / edit** (via sandbox I/O), **grep** (`docker exec … rg`), and **find** (`docker exec … find`) through the container filesystem at `/workspace`, aligned with Hermes terminal-env file routing.
-- **`PI_WORKER_SANDBOX_DOCKER=1`** fail-closed when the session container id is missing (bash + file tools refuse instead of falling back to host).
-- Bind-mounted task workdir remains the source of truth; container-only paths outside `/workspace` are still out of scope.
+### ACP `result_text` / `summary` from assistant output
+- `collectResults` no longer returns on `message_end` before `proc.Wait()`; it merges streamed deltas with the child pi `--mode json` accumulated stdout.
+- Completed runs set `result_text` and `summary` from assistant text when present; duration phrases (`Completed in …`) are only used when there is no assistant text.
+- `responses.v1` wrap still emits OpenAI Responses JSON, but `output_text` is assistant text (not a duration fallback).
 
-### `--local-confined` hardline floor
-- Portable Hermes **hardline** subset (rm root/home, mkfs, dd→block dev, fork bomb, shutdown/reboot at command position) runs **before** fnmatch deny globs on executor bash.
-- Not full Hermes `approvals.deny` (Python command-position deobfuscation for all dangerous patterns).
+### Hardline deny depth (portable subset)
+- Extended Hermes `HARDLINE_PATTERNS` subset: protected `rm` targets (`/etc`, `/usr`, …), redirect-to-block-device, `kill -1`, `init 0/6`, `systemctl poweroff|reboot|halt|kexec`, `telinit 0/6`.
+- Command-position anchor (`_CMDPOS`) now includes `;`, `|`, and `&` separators (Hermes-aligned).
+- Still **not** full Python `approvals.deny` deobfuscation or the full `DANGEROUS_PATTERNS` ask/yolo layer.
 
-### Responses / checkpoint depth (L2 partial)
-- Extended `responses.v1` parse: `response_id`, echo `model`, `limits.max_result_bytes`, `request` echo.
-- Terminal **`result_text`** wrapped as OpenAI Responses `object: "response"` JSON when the envelope was present (Hermes `_wrap_responses` subset).
-- **Still irreducible:** no `split_replay_messages` / tool-call item replay, no `model_sessions` restore, no L2 checkpoint blobs in pi-go session store.
+## Carried from #10 (unchanged)
 
-## Carried from #9 (unchanged)
-
-- Per-run Docker container + bash via `docker exec`.
+- Docker file-tool remoting (`read` / `write` / `edit` / `grep` / `find`) via per-run container + bind-mounted workdir.
 - L1 step checkpoints, envelope user-message extraction, local-confined fnmatch deny globs.
+- Terminal `result_text` Responses JSON wrap when `responses.v1` envelope is present.
 
 ## Still deferred
 
-- Hub / swarm-network contract changes.
-- `client-daemon` host swap.
-- Full Hermes file-tool parity (Modal/SSH backends, container mirror paths, persistent cross-process container).
-- Real `delegate_task` child detection (env stub only).
+| Item | Why irreducible in-repo |
+|------|-------------------------|
+| Hub / swarm-network contract changes | Out of scope (wire owned by platform). |
+| `client-daemon` host swap | Out of scope (separate binary). |
+| Modal / SSH backends, cross-process persistent containers | Product scope; not a sidecar-only patch. |
+| Full Hermes `approvals.deny` / `DANGEROUS_PATTERNS` | Python-specific deobfuscation and approval UX; pi-go ships hardline + fnmatch deny only. |
+| L2 `model_sessions` / tool-item replay | pi-go session store has no Hermes `split_replay_messages` / checkpoint blob model; faking replay would break resume semantics. L1 goal/blob/summary resume remains. |
+| Real `delegate_task` child detection | pi-go has no `delegate_task` spawn path yet; `PI_DELEGATED_CHILD` is wired for master-planner refusal but nothing sets it on children until delegate_task lands. |
 
 ## Verify
 

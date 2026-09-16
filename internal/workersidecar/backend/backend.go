@@ -317,47 +317,35 @@ func (b *Backend) collectResults(ctx context.Context, runID, taskKey string, pro
 					Checkpoint: salvageCheckpoint(taskKey, stepCount, lastCheckpoint, resultText.String()),
 				}
 			case "message_end":
-				duration := time.Since(startTime)
-				return workersidecar.RunResult{
-					Status:     "completed",
-					Summary:    fmt.Sprintf("Completed in %v", duration.Round(time.Second)),
-					ResultText: resultText.String(),
-					Usage:      &workersidecar.UsageInfo{},
-					Checkpoint: lastCheckpoint,
-				}
+				// Do not return here: wait for the child to exit and merge
+				// proc.Wait() text in case deltas were dropped or never streamed.
 			}
 		}
 	}
 
 done:
+	duration := time.Since(startTime)
 	finalResult, err := proc.Wait()
+	assistantText := mergeAssistantText(resultText.String(), finalResult)
 	if err != nil {
 		if ctx.Err() != nil {
 			return workersidecar.RunResult{
 				Status:     "cancelled",
 				Summary:    "Run cancelled",
-				ResultText: resultText.String(),
+				ResultText: assistantText,
 				Error:      ctx.Err().Error(),
-				Checkpoint: salvageCheckpoint(taskKey, stepCount, lastCheckpoint, resultText.String()),
+				Checkpoint: salvageCheckpoint(taskKey, stepCount, lastCheckpoint, assistantText),
 			}
 		}
 		return workersidecar.RunResult{
 			Status:     "failed",
 			Summary:    "Agent failed",
-			ResultText: resultText.String(),
+			ResultText: assistantText,
 			Error:      err.Error(),
-			Checkpoint: salvageCheckpoint(taskKey, stepCount, lastCheckpoint, resultText.String()),
+			Checkpoint: salvageCheckpoint(taskKey, stepCount, lastCheckpoint, assistantText),
 		}
 	}
-	if finalResult != "" {
-		resultText.WriteString(finalResult)
-	}
-	return workersidecar.RunResult{
-		Status:     "completed",
-		Summary:    "Task completed",
-		ResultText: resultText.String(),
-		Checkpoint: lastCheckpoint,
-	}
+	return completedRunResult(assistantText, duration, lastCheckpoint)
 }
 
 // PiBinaryPath returns the path to the pi binary used for spawning.

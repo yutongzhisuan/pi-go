@@ -220,8 +220,9 @@ Socket permissions: `0600` (owner read/write only)
 
 - Master planner runs on the main `pi` agent (`--master-planner` / `PI_MASTER_PLANNER=1`), not in this subcommand.
 - No client-daemon host swap.
-- Docker sandbox: per-run container + `docker exec` bash; file tools use host `os.Root` on the bind-mounted workdir (see parity doc for the file-tool remoting gap).
-- `--local-confined`: Hermes default deny globs on executor bash (subset of full `approvals.deny` deobfuscation).
+- Docker sandbox: per-run container + `docker exec` bash; read/write/edit/grep/find route through the container filesystem at `/workspace` when `PI_WORKER_DOCKER_*` is set (bind-mounted workdir is source of truth).
+- `--local-confined`: Hermes hardline floor + default deny globs on executor bash (portable subset — not full Python `approvals.deny` deobfuscation).
+- Completed `acp.run` maps the executor assistant reply into `result_text` / `summary` (not duration-only placeholders).
 - L2 checkpoint resume (Responses object replay, model session restore) not implemented — L1 goal/blob/summary resume only.
 - See `docs/superpowers/HERMES_PARITY_STATUS.md` for the full closed vs deferred list.
 
@@ -255,7 +256,7 @@ When a bash command matches a deny glob, the tool returns `BLOCKED: command matc
 
 ## Limitations
 
-- **Docker file tools**: Bash runs in the per-run container; read/write/edit/grep/find run on the host against the mounted workdir (same task files, not Hermes terminal-env file routing).
+- **Docker paths**: Container-only paths outside the bind-mounted `/workspace` are not mirrored (Hermes terminal-env full parity).
 - **Local-confined**: Bash-only deny globs; not a security boundary (same caveat as Hermes).
 - **Checkpoint/resume**: L1 text/blob/summary; no L2 model-session or Responses replay.
 - **Master planner**: Runs on main `pi`, not this subcommand.
