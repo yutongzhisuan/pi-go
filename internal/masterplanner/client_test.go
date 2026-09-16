@@ -366,17 +366,17 @@ func TestEncodeContext(t *testing.T) {
 				}
 				return
 			}
-			if ctx == nil {
-				t.Fatal("encodeContext returned nil")
-			}
-			hasInline := ctx.Inline != ""
-			hasGzip := ctx.InlineGzip != ""
-			if hasInline != tt.wantInline {
-				t.Errorf("hasInline = %v, want %v", hasInline, tt.wantInline)
-			}
-			if hasGzip != tt.wantGzip {
-				t.Errorf("hasGzip = %v, want %v", hasGzip, tt.wantGzip)
-			}
+		if ctx == nil {
+			t.Fatal("encodeContext returned nil")
+		}
+		hasInline := ctx.Inline != ""
+		hasGzip := ctx.InlineGzip != nil
+		if hasInline != tt.wantInline {
+			t.Errorf("hasInline = %v, want %v", hasInline, tt.wantInline)
+		}
+		if hasGzip != tt.wantGzip {
+			t.Errorf("hasGzip = %v, want %v", hasGzip, tt.wantGzip)
+		}
 		})
 	}
 }

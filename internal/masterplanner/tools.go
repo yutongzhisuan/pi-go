@@ -550,7 +550,7 @@ func gatewayListModels(ctx agent.Context, input ListModelsInput) (string, error)
 		return "", err
 	}
 
-	resp, err := client.ListModels(context.Background(), input.Region)
+	resp, err := client.ListAgentModels(context.Background(), input.Region)
 	if err != nil {
 		return jsonErr(err), nil
 	}
