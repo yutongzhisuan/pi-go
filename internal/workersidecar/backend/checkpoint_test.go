@@ -7,6 +7,17 @@ import (
 	"github.com/dimetron/pi-go/internal/workersidecar"
 )
 
+func TestBuildGoalResumeSummaryFallback(t *testing.T) {
+	got := buildGoal(workersidecar.RunParams{
+		ResumeFromCheckpoint: "cp-1",
+		Params:               map[string]interface{}{"resume_summary": "partial state"},
+		Goal:                   "finish",
+	})
+	if !strings.Contains(got, "partial state") {
+		t.Fatalf("expected resume_summary in goal: %q", got)
+	}
+}
+
 func TestBuildGoalResumeBlob(t *testing.T) {
 	got := buildGoal(workersidecar.RunParams{
 		ResumeFromCheckpoint: "cp-1",

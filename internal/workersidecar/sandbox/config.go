@@ -21,16 +21,31 @@ type Config struct {
 	MemoryMB int
 }
 
-// ApplyEnv configures process-global terminal/docker env vars (Hermes apply_sandbox_env).
-// Must run before the first agent/bash command in this process tree.
+// ResolvedImage returns the configured image or the Hermes-aligned default.
+func (c Config) ResolvedImage() string {
+	if strings.TrimSpace(c.Image) != "" {
+		return strings.TrimSpace(c.Image)
+	}
+	return DefaultImage
+}
+
+// FromFlags builds Config from worker-sidecar CLI flag values.
+func FromFlags(image string, network bool, cpu float64, memoryMB int) Config {
+	return Config{
+		Image:    strings.TrimSpace(image),
+		Network:  network,
+		CPUs:     cpu,
+		MemoryMB: memoryMB,
+	}
+}
+
+// ApplyEnv configures process-global TERMINAL_* env (Hermes apply_sandbox_env).
+// Used only when falling back to per-invocation docker run --rm (non-sidecar paths).
 func (c Config) ApplyEnv() {
 	os.Setenv("TERMINAL_ENV", "docker")
-	image := strings.TrimSpace(c.Image)
-	if image == "" {
-		image = strings.TrimSpace(os.Getenv("TERMINAL_DOCKER_IMAGE"))
-	}
-	if image == "" {
-		image = DefaultImage
+	image := c.ResolvedImage()
+	if v := strings.TrimSpace(os.Getenv("TERMINAL_DOCKER_IMAGE")); v != "" && c.Image == "" {
+		image = v
 	}
 	os.Setenv("TERMINAL_DOCKER_IMAGE", image)
 	if c.Network {
@@ -52,7 +67,7 @@ func (c Config) ApplyEnv() {
 	}
 }
 
-// EnvPairs returns KEY=value entries for child pi executor processes.
+// EnvPairs returns KEY=value entries for child pi processes (legacy TERMINAL docker run --rm path).
 func (c Config) EnvPairs() []string {
 	c.ApplyEnv()
 	out := []string{
@@ -69,16 +84,6 @@ func (c Config) EnvPairs() []string {
 		out = append(out, "TERMINAL_CONTAINER_MEMORY="+v)
 	}
 	return out
-}
-
-// FromFlags builds Config from worker-sidecar CLI flag values.
-func FromFlags(image string, network bool, cpu float64, memoryMB int) Config {
-	return Config{
-		Image:    strings.TrimSpace(image),
-		Network:  network,
-		CPUs:     cpu,
-		MemoryMB: memoryMB,
-	}
 }
 
 // ValidateMode checks sandbox mode and Docker availability (fail-closed).

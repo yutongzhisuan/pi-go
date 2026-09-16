@@ -2,8 +2,10 @@ package tools
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 )
 
@@ -34,18 +36,48 @@ var currentShellKind = sync.OnceValue(resolveShellKind)
 // registering bash-only tools or to adjust tool descriptions for the model.
 func CurrentShellKind() string { return currentShellKind() }
 
+const (
+	envWorkerDockerContainer = "PI_WORKER_DOCKER_CONTAINER"
+	envWorkerDockerBin       = "PI_WORKER_DOCKER_BIN"
+	envWorkerDockerWorkdir   = "PI_WORKER_DOCKER_WORKDIR"
+)
+
 // shellCommand builds the exec command that runs script in this machine's shell.
 func shellCommand(ctx context.Context, script string) *exec.Cmd {
-	return buildShellCommand(ctx, CurrentShellKind(), script)
+	cmd, err := shellCommandInDir(ctx, "", script)
+	if err != nil {
+		return buildShellCommand(ctx, CurrentShellKind(), script)
+	}
+	return cmd
 }
 
 // shellCommandInDir runs script with an explicit host working directory (docker sandbox mounts it).
 func shellCommandInDir(ctx context.Context, hostWorkDir, script string) (*exec.Cmd, error) {
+	if cmd, ok := workerDockerExecCommand(ctx, script); ok {
+		return cmd, nil
+	}
 	if dockerTerminalEnabled() {
 		return dockerShellCommand(ctx, hostWorkDir, script)
 	}
 	cmd := buildShellCommand(ctx, CurrentShellKind(), script)
 	return cmd, nil
+}
+
+func workerDockerExecCommand(ctx context.Context, script string) (*exec.Cmd, bool) {
+	kind := CurrentShellKind()
+	container := strings.TrimSpace(os.Getenv(envWorkerDockerContainer))
+	if container == "" || kind != shellKindBash {
+		return nil, false
+	}
+	bin := strings.TrimSpace(os.Getenv(envWorkerDockerBin))
+	if bin == "" {
+		bin = "docker"
+	}
+	workdir := strings.TrimSpace(os.Getenv(envWorkerDockerWorkdir))
+	if workdir == "" {
+		workdir = "/workspace"
+	}
+	return exec.CommandContext(ctx, bin, "exec", "-i", "-w", workdir, container, "bash", "-lc", script), true
 }
 
 // psExitEpilogue makes powershell.exe report failure the way bash does.

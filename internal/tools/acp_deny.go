@@ -9,18 +9,34 @@ import (
 	"github.com/dimetron/pi-go/internal/workersidecar/confined"
 )
 
-const envACPDenyRules = "PI_ACP_DENY_RULES"
+const (
+	envACPLocalConfined = "PI_ACP_LOCAL_CONFINED"
+	envACPDenyRules     = "PI_ACP_DENY_RULES"
+)
 
 func acpDenyRulesFromEnv() []string {
+	if !acpLocalConfinedActive() {
+		return nil
+	}
 	raw := strings.TrimSpace(os.Getenv(envACPDenyRules))
 	if raw == "" {
-		return nil
+		return confined.DefaultDenyRules
 	}
 	var rules []string
 	if err := json.Unmarshal([]byte(raw), &rules); err != nil {
-		return nil
+		return confined.DefaultDenyRules
 	}
 	return rules
+}
+
+func acpLocalConfinedActive() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(envACPLocalConfined)))
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func checkACPDeny(command string) error {
