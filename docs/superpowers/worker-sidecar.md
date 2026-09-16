@@ -220,9 +220,10 @@ Socket permissions: `0600` (owner read/write only)
 
 - Master planner runs on the main `pi` agent (`--master-planner` / `PI_MASTER_PLANNER=1`), not in this subcommand.
 - No client-daemon host swap.
-- **Docker sandbox**: bash commands run in disposable `docker run --rm` containers; file tools still use the host filesystem sandbox (see parity doc).
-- **`--local-confined`**: deny globs apply to the bash tool only (not Hermes full approval stack / deobfuscation).
-- See `docs/superpowers/HERMES_PARITY_STATUS.md` for gaps and verify commands.
+- Docker sandbox: per-run container + `docker exec` bash; file tools use host `os.Root` on the bind-mounted workdir (see parity doc for the file-tool remoting gap).
+- `--local-confined`: Hermes default deny globs on executor bash (subset of full `approvals.deny` deobfuscation).
+- L2 checkpoint resume (Responses object replay, model session restore) not implemented — L1 goal/blob/summary resume only.
+- See `docs/superpowers/HERMES_PARITY_STATUS.md` for the full closed vs deferred list.
 
 ## Troubleshooting
 
@@ -246,7 +247,7 @@ Check:
 
 ### Docker sandbox unavailable
 
-If startup fails with `docker sandbox unavailable`, the Docker CLI is missing or the daemon is not reachable. The sidecar **does not** fall back to unsandboxed execution when `--sandbox docker` is set. Install/start Docker or omit `--sandbox`.
+If startup fails with `docker sandbox unavailable`, the Docker/Podman CLI is missing or the daemon is not reachable. The sidecar **does not** fall back to unsandboxed execution when `--sandbox docker` is set. Install/start Docker or omit `--sandbox`.
 
 ### Local-confined deny hit
 
@@ -254,12 +255,12 @@ When a bash command matches a deny glob, the tool returns `BLOCKED: command matc
 
 ## Limitations
 
-- **Docker sandbox**: bash-only; per-invocation containers; see `HERMES_PARITY_STATUS.md`.
-- **Local-confined**: bash-only deny matching (subset of Hermes `approvals.deny`).
-- **Checkpoint L2**: goal prepend + L1 step checkpoints; no full model-session replay.
-- **Master planner**: runs on main `pi`, not this subcommand.
+- **Docker file tools**: Bash runs in the per-run container; read/write/edit/grep/find run on the host against the mounted workdir (same task files, not Hermes terminal-env file routing).
+- **Local-confined**: Bash-only deny globs; not a security boundary (same caveat as Hermes).
+- **Checkpoint/resume**: L1 text/blob/summary; no L2 model-session or Responses replay.
+- **Master planner**: Runs on main `pi`, not this subcommand.
 
-Use `--stateless` with the default toolset whitelist for secure remote task execution without shell tools.
+Use `--stateless` with the default toolset whitelist, or `--sandbox docker` on Linux for stricter shell isolation.
 
 ## Testing & Validation
 

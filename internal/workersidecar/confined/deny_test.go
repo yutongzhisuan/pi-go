@@ -14,6 +14,13 @@ func TestMatchDenyBlocksPipeToShell(t *testing.T) {
 	}
 }
 
+func TestMatchDenyDeobfuscatesBackslashSplit(t *testing.T) {
+	rules := []string{"rm -rf /*"}
+	if _, ok := MatchDeny(`r\m -rf /`, rules); !ok {
+		t.Fatal("expected deobfuscated rm pattern match")
+	}
+}
+
 func TestMatchDenyAllowsSafeCommand(t *testing.T) {
 	if _, ok := MatchDeny("ls -la", DefaultDenyRules); ok {
 		t.Fatal("expected ls to be allowed")

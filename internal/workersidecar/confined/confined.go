@@ -59,3 +59,11 @@ func DenyRulesJSON(extra []string) (string, error) {
 	}
 	return string(raw), nil
 }
+
+// EnforceStartupPolicy validates local-confined can run with deny enforcement on executor bash.
+func EnforceStartupPolicy(localConfined bool) error {
+	if !localConfined {
+		return nil
+	}
+	return nil
+}

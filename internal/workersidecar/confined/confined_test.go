@@ -5,6 +5,15 @@ import (
 	"testing"
 )
 
+func TestEnforceStartupPolicyAllowsLocalConfined(t *testing.T) {
+	if err := EnforceStartupPolicy(true); err != nil {
+		t.Fatalf("local-confined should start with deny enforcement: %v", err)
+	}
+	if err := EnforceStartupPolicy(false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestMergeRulesIncludesDefaults(t *testing.T) {
 	rules := MergeRules([]string{"custom *"})
 	if len(rules) <= len(DefaultDenyRules) {

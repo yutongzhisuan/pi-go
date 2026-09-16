@@ -12,6 +12,7 @@ import (
 
 	"github.com/dimetron/pi-go/internal/subagent"
 	"github.com/dimetron/pi-go/internal/workersidecar/backend"
+	"github.com/dimetron/pi-go/internal/workersidecar/confined"
 	"github.com/dimetron/pi-go/internal/workersidecar/options"
 	"github.com/dimetron/pi-go/internal/workersidecar/profile"
 	"github.com/dimetron/pi-go/internal/workersidecar/rpc"
@@ -107,7 +108,9 @@ func runWorkerSidecar(cmd *cobra.Command, args []string) error {
 			workerSandboxCPU,
 			workerSandboxMemoryMB,
 		)
-		sandboxCfg.ApplyEnv()
+	}
+	if err := confined.EnforceStartupPolicy(workerLocalConfined); err != nil {
+		return err
 	}
 
 	sidecarOpts := options.ParseSidecarOptions(
@@ -150,9 +153,9 @@ func runWorkerSidecar(cmd *cobra.Command, args []string) error {
 		Stateless:      stateless,
 		StateRoot:      stateRoot,
 		RuntimeBaseURL: rtCfg.BaseURL,
-		Sidecar:        sidecarOpts,
-		Sandbox:        sandboxCfg,
-		LocalConfined:  workerLocalConfined,
+		Sandbox:       sandboxCfg,
+		LocalConfined: workerLocalConfined,
+		Sidecar:       sidecarOpts,
 		ProgressCallback: func(runID, summary string) {
 			srv.EnqueueProgress(runID, summary)
 		},

@@ -5,14 +5,14 @@ import (
 	"testing"
 )
 
-func TestValidateDockerStartupEmpty(t *testing.T) {
+func TestValidateModeEmpty(t *testing.T) {
 	cfg, err := ValidateMode("")
 	if err != nil || cfg != nil {
 		t.Fatalf("expected nil config, got cfg=%v err=%v", cfg, err)
 	}
 }
 
-func TestValidateDockerStartupUnsupported(t *testing.T) {
+func TestValidateModeUnsupported(t *testing.T) {
 	if _, err := ValidateMode("podman"); err == nil {
 		t.Fatal("expected error for unsupported sandbox")
 	}

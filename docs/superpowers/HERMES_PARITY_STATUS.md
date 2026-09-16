@@ -1,43 +1,35 @@
 # Hermes → pi-go parity status (2026-09-16)
 
-Branch: `cursor/hermes-sidecar-parity-da3e` (draft PR).
+Branch: `cursor/worker-sidecar-parity-gaps-a664` (PR #9).
 
-## Closed in this PR (Worker ACP sidecar)
+## Closed in this PR (worker-sidecar gaps after #8)
 
-### Docker sandbox (`--sandbox docker`)
-- Sidecar applies Hermes-equivalent `TERMINAL_*` env via `apply_sandbox_env` parity (`internal/workersidecar/sandbox`).
-- Startup **fail-closed** when the Docker CLI/daemon is unavailable; succeeds when Docker works on Linux.
-- Executor children inherit sandbox env; **bash** runs through `docker run --rm` with network-off-by-default, CPU/memory limits, cap-drop, and task workdir bind-mounted to `/workspace`.
-- Tests: env wiring, arg assembly, refuse-when-unavailable (skip-if-no-docker integration probe).
+### Docker sandbox (partial Hermes parity)
+- `--sandbox docker` **fail-closed** when Docker/Podman CLI or daemon is unavailable (`CheckDockerAvailable` on Linux).
+- Per **run** reusable container (`docker run -d` + `sleep infinity`), workdir bind-mounted at `/workspace`, destroyed on run end/cancel.
+- Executor child **bash** runs via `docker exec` into that container (`PI_WORKER_DOCKER_*` env), not per-invocation `docker run --rm` when the session container is active.
+- Legacy `TERMINAL_*` / `docker run --rm` path remains in `internal/tools/terminal_docker.go` for non-session callers only.
+- **Remaining gap:** file/code tools use host `os.Root` on the bind-mounted workdir (same task files as `/workspace`; not Hermes terminal-env file routing).
 
 ### `--local-confined`
-- Default + extra deny globs merged (`DEFAULT_LOCAL_DENY_RULES` parity).
-- Deny globs enforced on **bash** via `PI_ACP_DENY_RULES` (fnmatch-style, case-insensitive).
-- Sidecar starts with `--local-confined` (no longer fail-closed refuse-only).
+- Sidecar starts with `--local-confined`; Hermes `DEFAULT_LOCAL_DENY_RULES` (+ extras) via `PI_ACP_DENY_RULES`.
+- Bash deny **before** execution; normalized/fnmatch variants (NFKC, line continuations, backslash/empty-quote/IFS, segment split).
+- Not full Hermes `approvals.deny` (command-position deobfuscation, hardline floor).
 
-### Checkpoints / resume
-- Mid-run checkpoints emit `checkpoint_id`, `summary`, `fields.step`, empty `resume_blob` (Hermes L1 step milestones).
-- Terminal cancel/fail **salvage** fills `resume_blob` from partial `result_text` when useful for Hub uplink.
-- `resume_from_checkpoint` + `resume_blob` still prepended into the child goal (Hermes acp_backend behavior).
+### Checkpoint / resume (L1 + envelope)
+- L1: step checkpoints (empty `resume_blob`), terminal salvage, `resume_from_checkpoint` / `resume_blob` / `params.resume_summary`.
+- `params.responses.v1` envelope → user message; malformed → `invalid_responses_payload`.
+- **L2 gaps:** no Responses object as `result_text`, no `split_replay_messages`, no `model_sessions` restore (Hermes M1 deferral).
 
-## Known gaps (documented, tested subset only)
-
-| Area | Hermes | pi-go (this PR) |
-|------|--------|-----------------|
-| Docker scope | Terminal + file/code tools share container env | **Bash only**; file tools remain host `os.Root` sandbox |
-| Deny scope | `approvals.deny` before all approval bypasses | **Bash only**; no Hermes command deobfuscation variants |
-| Container lifecycle | Per-session reusable container | **Per bash invocation** `docker run --rm` (disposable, simpler) |
-| Checkpoint L2 | `responses_payload` / model session replay | Not ported (out of scope) |
-
-## Unchanged / still deferred
+## Still deferred
 
 - Hub / swarm-network contract changes.
 - `client-daemon` host swap.
-- Master planner (`PI_MASTER_PLANNER`) — separate PR track.
-- Full Hermes `responses_payload` / `model_sessions` deep resume.
+- Full Hermes file-tool remoting inside Docker.
+- Real `delegate_task` child detection (env stub only).
 
 ## Verify
 
 ```bash
-go test ./internal/workersidecar/...
+go test ./internal/workersidecar/... ./internal/tools/...
 ```

@@ -13,6 +13,7 @@ import (
 	"github.com/dimetron/pi-go/internal/workersidecar"
 	"github.com/dimetron/pi-go/internal/workersidecar/confined"
 	"github.com/dimetron/pi-go/internal/workersidecar/options"
+	"github.com/dimetron/pi-go/internal/workersidecar/responses"
 	"github.com/dimetron/pi-go/internal/workersidecar/sandbox"
 )
 
@@ -38,12 +39,12 @@ type Config struct {
 	Stateless          bool
 	StateRoot          string
 	RuntimeBaseURL     string
+	Sandbox            *sandbox.Config
+	LocalConfined      bool
 	ProgressCallback   ProgressCallback
 	CheckpointCallback CheckpointCallback
 	OnProcess          func(runID string, proc *subagent.Process)
 	Sidecar            options.SidecarOptions
-	Sandbox            *sandbox.Config
-	LocalConfined      bool
 }
 
 // New creates a new Backend with the given configuration.
@@ -60,6 +61,17 @@ func New(cfg Config) *Backend {
 
 // RunSession executes a pi-go agent session and returns Hermes-shaped results.
 func (b *Backend) RunSession(ctx context.Context, params workersidecar.RunParams) workersidecar.RunResult {
+	parsed := responses.ParseEnvelope(params.Params, params.Goal, params.Model)
+	if parsed.Present && parsed.ErrorCode != "" {
+		msg := "invalid responses.v1 envelope"
+		return workersidecar.RunResult{
+			Status:    "failed",
+			Summary:   msg,
+			Error:     msg,
+			ErrorCode: parsed.ErrorCode,
+		}
+	}
+
 	workDir, cleanupWork, err := b.prepareWorkDir(params.RunID)
 	if err != nil {
 		return workersidecar.RunResult{
@@ -71,13 +83,28 @@ func (b *Backend) RunSession(ctx context.Context, params workersidecar.RunParams
 		defer cleanupWork()
 	}
 
+	var dockerSession *sandbox.Session
+	if b.cfg.Sandbox != nil {
+		dockerSession, err = sandbox.StartSession(ctx, *b.cfg.Sandbox, params.RunID, workDir)
+		if err != nil {
+			return workersidecar.RunResult{
+				Status: "failed",
+				Error:  fmt.Sprintf("docker sandbox: %v", err),
+			}
+		}
+		defer dockerSession.Destroy(context.Background())
+	}
+
 	goal := buildGoal(params)
+	if parsed.Present {
+		goal = parsed.UserMessage
+	}
 	timeout := params.TimeoutSeconds
 	if timeout == 0 {
 		timeout = 600
 	}
 
-	env := b.executorEnv(params, params.ResolvedToolsets)
+	env := b.executorEnv(params, params.ResolvedToolsets, dockerSession)
 	opts := subagent.SpawnOpts{
 		AgentID:     params.RunID,
 		Model:       params.Model,
@@ -116,7 +143,7 @@ func buildGoal(params workersidecar.RunParams) string {
 	}
 	if params.ResumeFromCheckpoint != "" {
 		prefix := fmt.Sprintf("[Resuming from checkpoint %s]\n", params.ResumeFromCheckpoint)
-		if blob := strings.TrimSpace(params.ResumeBlob); blob != "" {
+		if blob := resumeBlobText(params); blob != "" {
 			return prefix + blob + "\n" + goal
 		}
 		return prefix + goal
@@ -124,7 +151,20 @@ func buildGoal(params workersidecar.RunParams) string {
 	return goal
 }
 
-func (b *Backend) executorEnv(params workersidecar.RunParams, resolvedToolsets []string) []string {
+func resumeBlobText(params workersidecar.RunParams) string {
+	if blob := strings.TrimSpace(params.ResumeBlob); blob != "" {
+		return blob
+	}
+	if params.Params == nil {
+		return ""
+	}
+	if rs, ok := params.Params["resume_summary"].(string); ok {
+		return strings.TrimSpace(rs)
+	}
+	return ""
+}
+
+func (b *Backend) executorEnv(params workersidecar.RunParams, resolvedToolsets []string, dockerSession *sandbox.Session) []string {
 	if !b.cfg.Stateless && len(resolvedToolsets) == 0 && b.cfg.Sandbox == nil && !b.cfg.LocalConfined {
 		return nil
 	}
@@ -136,9 +176,6 @@ func (b *Backend) executorEnv(params workersidecar.RunParams, resolvedToolsets [
 	if len(resolvedToolsets) > 0 {
 		env = append(env, "PI_ACP_RESOLVED_TOOLSETS="+strings.Join(resolvedToolsets, ","))
 	}
-	if b.cfg.Sandbox != nil {
-		env = append(env, b.cfg.Sandbox.EnvPairs()...)
-	}
 	if b.cfg.LocalConfined {
 		extra := b.cfg.Sidecar.LocalConfinedExtraDeny
 		if raw, err := confined.DenyRulesJSON(extra); err == nil {
@@ -148,6 +185,15 @@ func (b *Backend) executorEnv(params workersidecar.RunParams, resolvedToolsets [
 	}
 	if params.ResumeFromCheckpoint != "" {
 		env = append(env, "PI_ACP_RESUME_CHECKPOINT="+params.ResumeFromCheckpoint)
+	}
+	if dockerSession != nil {
+		if bin, err := sandbox.FindDocker(); err == nil {
+			env = append(env, "PI_WORKER_DOCKER_BIN="+bin)
+		}
+		env = append(env, "PI_WORKER_DOCKER_CONTAINER="+dockerSession.ContainerID())
+		env = append(env, "PI_WORKER_DOCKER_WORKDIR="+sandbox.ContainerWorkdir)
+	} else if b.cfg.Sandbox != nil {
+		env = append(env, b.cfg.Sandbox.EnvPairs()...)
 	}
 	return env
 }
