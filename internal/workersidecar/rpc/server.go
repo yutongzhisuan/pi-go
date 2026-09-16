@@ -48,8 +48,9 @@ type runState struct {
 
 // progressBucket stores progress summaries for a run.
 type progressBucket struct {
-	summaries []string
-	mu        sync.Mutex
+	summaries      []string
+	responseEvents []json.RawMessage
+	mu             sync.Mutex
 }
 
 // Config holds configuration for the RPC server.
@@ -334,7 +335,9 @@ func (s *Server) handleProgress(ctx context.Context, req JSONRPCRequest) JSONRPC
 
 	bucket.mu.Lock()
 	summaries := bucket.summaries
+	responseEvents := bucket.responseEvents
 	bucket.summaries = nil
+	bucket.responseEvents = nil
 	bucket.mu.Unlock()
 
 	s.mu.RLock()
@@ -347,7 +350,10 @@ func (s *Server) handleProgress(ctx context.Context, req JSONRPCRequest) JSONRPC
 		s.mu.Unlock()
 	}
 
-	return NewSuccessResponse(req.ID, workersidecar.ProgressResult{Summaries: summaries})
+	return NewSuccessResponse(req.ID, workersidecar.ProgressResult{
+		Summaries:      summaries,
+		ResponseEvents: responseEvents,
+	})
 }
 
 // handleToolsets implements acp.toolsets method.
@@ -377,6 +383,26 @@ func (s *Server) EnqueueProgress(runID, summary string) {
 
 	bucket.mu.Lock()
 	bucket.summaries = append(bucket.summaries, summary)
+	bucket.mu.Unlock()
+}
+
+// EnqueueResponseEvent adds a Responses API SSE payload for acp.progress draining.
+func (s *Server) EnqueueResponseEvent(runID string, event map[string]interface{}) {
+	if event == nil {
+		return
+	}
+	raw, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	s.mu.RLock()
+	bucket, exists := s.progress[runID]
+	s.mu.RUnlock()
+	if !exists {
+		return
+	}
+	bucket.mu.Lock()
+	bucket.responseEvents = append(bucket.responseEvents, raw)
 	bucket.mu.Unlock()
 }
 

@@ -1,6 +1,9 @@
 package workersidecar
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // RunParams defines the parameters for acp.run method.
 type RunParams struct {
@@ -78,7 +81,8 @@ type ProgressParams struct {
 
 // ProgressResult defines the result returned by acp.progress method.
 type ProgressResult struct {
-	Summaries []string `json:"summaries"`
+	Summaries      []string          `json:"summaries"`
+	ResponseEvents []json.RawMessage `json:"response_events,omitempty"`
 }
 
 // ToolsetsResult defines the result returned by acp.toolsets method.

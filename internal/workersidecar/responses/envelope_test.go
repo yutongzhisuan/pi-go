@@ -29,3 +29,23 @@ func TestParseEnvelopeInvalid(t *testing.T) {
 		t.Fatalf("error code: %q", p.ErrorCode)
 	}
 }
+
+func TestParseEnvelopeStructuredReplayUserMessage(t *testing.T) {
+	params := map[string]interface{}{
+		EnvelopeKey: `{"request":{"input":[
+			{"role":"user","content":"first"},
+			{"role":"assistant","content":"mid"},
+			{"role":"user","content":"last"}
+		],"instructions":"sys"}}`,
+	}
+	p := ParseEnvelope(params, "fallback", "m")
+	if !p.Replay.Structured {
+		t.Fatal("expected structured replay")
+	}
+	if p.UserMessage != "sys\n\nlast" {
+		t.Fatalf("user message = %q", p.UserMessage)
+	}
+	if len(p.Replay.History) != 2 {
+		t.Fatalf("history len = %d", len(p.Replay.History))
+	}
+}

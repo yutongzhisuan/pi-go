@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -31,6 +32,9 @@ type Backend struct {
 // ProgressCallback is called when progress is reported.
 type ProgressCallback func(runID, summary string)
 
+// ResponseEventCallback is called for Responses API item-level SSE payloads.
+type ResponseEventCallback func(runID string, event map[string]interface{})
+
 // CheckpointCallback is called when a checkpoint is created.
 type CheckpointCallback func(runID string, checkpoint *workersidecar.CheckpointInfo)
 
@@ -42,8 +46,9 @@ type Config struct {
 	RuntimeBaseURL     string
 	Sandbox            *sandbox.Config
 	LocalConfined      bool
-	ProgressCallback   ProgressCallback
-	CheckpointCallback CheckpointCallback
+	ProgressCallback       ProgressCallback
+	ResponseEventCallback  ResponseEventCallback
+	CheckpointCallback     CheckpointCallback
 	OnProcess          func(runID string, proc *subagent.Process)
 	Sidecar            options.SidecarOptions
 }
@@ -97,8 +102,9 @@ func (b *Backend) RunSession(ctx context.Context, params workersidecar.RunParams
 	}
 
 	goal := buildGoal(params)
-	if parsed.Present {
-		goal = parsed.UserMessage
+	var replayEnv []string
+	if parsed.Present && parsed.ErrorCode == "" {
+		goal, replayEnv = buildExecutorRun(params, parsed)
 	}
 	timeout := params.TimeoutSeconds
 	if timeout == 0 {
@@ -106,6 +112,7 @@ func (b *Backend) RunSession(ctx context.Context, params workersidecar.RunParams
 	}
 
 	env := b.executorEnv(params, params.ResolvedToolsets, dockerSession)
+	env = append(env, replayEnv...)
 	opts := subagent.SpawnOpts{
 		AgentID:     params.RunID,
 		Model:       params.Model,
@@ -134,7 +141,7 @@ func (b *Backend) RunSession(ctx context.Context, params workersidecar.RunParams
 	if taskKey == "" {
 		taskKey = params.RunID
 	}
-	result := b.collectResults(ctx, params.RunID, taskKey, proc)
+	result := b.collectResults(ctx, params.RunID, taskKey, proc, parsed)
 	return responses.WrapRunResult(result, parsed, params.TaskID, params.Model)
 }
 
@@ -228,11 +235,19 @@ func (b *Backend) prepareWorkDir(runID string) (string, func(), error) {
 	return workDir, cleanup, nil
 }
 
-func (b *Backend) collectResults(ctx context.Context, runID, taskKey string, proc *subagent.Process) workersidecar.RunResult {
+func (b *Backend) collectResults(ctx context.Context, runID, taskKey string, proc *subagent.Process, parsed responses.ParsedEnvelope) workersidecar.RunResult {
 	var resultText strings.Builder
 	var lastCheckpoint *workersidecar.CheckpointInfo
 	stepCount := 0
 	checkpointSeq := 0
+	responsesPath := parsed.Present && parsed.ErrorCode == ""
+	var turn responses.TurnAccum
+	emitResponseEvent := func(event map[string]interface{}) {
+		if !responsesPath || b.cfg.ResponseEventCallback == nil {
+			return
+		}
+		b.cfg.ResponseEventCallback(runID, event)
+	}
 	every := b.cfg.Sidecar.CheckpointEverySteps
 	progressMode := strings.ToLower(b.cfg.Sidecar.ProgressMode)
 	minInterval := time.Duration(b.cfg.Sidecar.ProgressIntervalSec * float64(time.Second))
@@ -303,10 +318,16 @@ func (b *Backend) collectResults(ctx context.Context, runID, taskKey string, pro
 			switch ev.Type {
 			case "text_delta":
 				resultText.WriteString(ev.Content)
+				turn.AssistantText += ev.Content
 				emitProgress(ev.Content)
 			case "tool_call":
 				stepCount++
 				emitToolProgress(ev.Content)
+				turn.ToolCalls = append(turn.ToolCalls, responses.TurnToolCall{
+					Name:      ev.Content,
+					Arguments: toolArgsJSON(ev.ToolArgs),
+					CallID:    fmt.Sprintf("call_%s_%d", taskKey, len(turn.ToolCalls)),
+				})
 				maybeCheckpoint(stepCount)
 			case "error":
 				return workersidecar.RunResult{
@@ -345,10 +366,35 @@ done:
 		}
 	}
 	result := completedRunResult(assistantText, lastCheckpoint)
+	if responsesPath {
+		items := responses.OutputItemsAfterLastUser(parsed.RawInput, responses.TurnOutputItems(taskKey, turn))
+		for _, ev := range responses.ResponseOutputItemAddedEvents(items) {
+			emitResponseEvent(ev)
+		}
+	}
 	if result.ErrorCode == "empty_assistant_output" {
 		log.Printf("workersidecar: run %s finished with no assistant text from executor child", runID)
 	}
 	return result
+}
+
+func toolArgsJSON(args any) string {
+	if args == nil {
+		return "{}"
+	}
+	switch v := args.(type) {
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return "{}"
+		}
+		return v
+	default:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return "{}"
+		}
+		return string(raw)
+	}
 }
 
 // PiBinaryPath returns the path to the pi binary used for spawning.
