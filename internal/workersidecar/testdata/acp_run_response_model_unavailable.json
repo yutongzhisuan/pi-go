@@ -1,0 +1,14 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "status": "failed",
+    "summary": "Model not available",
+    "result_text": "",
+    "fields": {},
+    "usage": null,
+    "error": "model \"custom-model-123\" not available in runtime (available: [llama3, codellama])",
+    "error_code": "model_unavailable",
+    "checkpoint": null
+  }
+}
