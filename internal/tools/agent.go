@@ -20,5 +20,13 @@ func AgentTools(orch *subagent.Orchestrator, onEvent AgentEventCallback) ([]tool
 			onEvent(ev.AgentID, ev.Kind, ev.Content)
 		}
 	}
-	return SubagentTools(orch, cb)
+	tools, err := SubagentTools(orch, cb)
+	if err != nil {
+		return nil, err
+	}
+	dt, err := NewDelegateTaskTool(orch)
+	if err != nil {
+		return nil, err
+	}
+	return append(tools, dt), nil
 }

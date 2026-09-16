@@ -739,6 +739,7 @@ func initNonInteractiveRuntime(ctx context.Context, cfg *config.Config, cwd, san
 		return nil, err
 	}
 	coreTools = adjustToolsForACPExecutor(coreTools)
+	coreTools = tools.AdjustToolsForDelegateChild(coreTools)
 
 	bashSup.SetSink(func(execID, kind, content string) {
 		agentEventCB(execID, tui.BashEventKind(kind), content)
