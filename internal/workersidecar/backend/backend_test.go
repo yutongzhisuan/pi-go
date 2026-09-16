@@ -13,9 +13,12 @@ func TestPrepareWorkDir(t *testing.T) {
 		Stateless: true,
 	})
 
-	workDir, err := b.prepareWorkDir("test-run-123")
+	workDir, cleanup, err := b.prepareWorkDir("test-run-123")
 	if err != nil {
 		t.Fatalf("prepareWorkDir() failed: %v", err)
+	}
+	if cleanup != nil {
+		defer cleanup()
 	}
 
 	if workDir == "" {
@@ -55,7 +58,7 @@ func TestBackendConfig(t *testing.T) {
 		t.Errorf("Backend.workRoot = %q, want %q", b.workRoot, cfg.WorkRoot)
 	}
 
-	if b.stateless != cfg.Stateless {
-		t.Errorf("Backend.stateless = %v, want %v", b.stateless, cfg.Stateless)
+	if b.cfg.Stateless != cfg.Stateless {
+		t.Errorf("Backend.cfg.Stateless = %v, want %v", b.cfg.Stateless, cfg.Stateless)
 	}
 }

@@ -14,7 +14,9 @@ import (
 
 	"github.com/dimetron/pi-go/internal/subagent"
 	"github.com/dimetron/pi-go/internal/workersidecar"
+	"github.com/dimetron/pi-go/internal/workersidecar/options"
 	"github.com/dimetron/pi-go/internal/workersidecar/profile"
+	"github.com/dimetron/pi-go/internal/workersidecar/runtime"
 )
 
 // BackendRunner defines the interface for running agent sessions.
@@ -24,18 +26,22 @@ type BackendRunner interface {
 
 // Server implements the JSON-RPC 2.0 server for Worker ACP sidecar.
 type Server struct {
-	backend  BackendRunner
-	profile  *profile.Profile
-	runs     map[string]*runState
-	progress map[string]*progressBucket
-	mu       sync.RWMutex
-	httpSrv  *http.Server
-	listener net.Listener
+	backend        BackendRunner
+	profile        *profile.Profile
+	runtime        runtime.Config
+	sidecarOpts    options.SidecarOptions
+	statelessTools []string
+	runs           map[string]*runState
+	progress       map[string]*progressBucket
+	mu             sync.RWMutex
+	httpSrv        *http.Server
+	listener       net.Listener
 }
 
 // runState tracks an active or recently completed run.
 type runState struct {
 	running bool
+	cancel  context.CancelFunc
 	process *subagent.Process
 	result  *workersidecar.RunResult
 }
@@ -48,17 +54,23 @@ type progressBucket struct {
 
 // Config holds configuration for the RPC server.
 type Config struct {
-	Backend BackendRunner
-	Profile *profile.Profile
+	Backend        BackendRunner
+	Profile        *profile.Profile
+	Runtime        runtime.Config
+	SidecarOptions options.SidecarOptions
+	StatelessTools []string
 }
 
 // NewServer creates a new JSON-RPC server.
 func NewServer(cfg Config) *Server {
 	return &Server{
-		backend:  cfg.Backend,
-		profile:  cfg.Profile,
-		runs:     make(map[string]*runState),
-		progress: make(map[string]*progressBucket),
+		backend:        cfg.Backend,
+		profile:        cfg.Profile,
+		runtime:        cfg.Runtime,
+		sidecarOpts:    cfg.SidecarOptions,
+		statelessTools: cfg.StatelessTools,
+		runs:           make(map[string]*runState),
+		progress:       make(map[string]*progressBucket),
 	}
 }
 
@@ -106,7 +118,8 @@ func (s *Server) serve() error {
 	s.httpSrv = &http.Server{
 		Handler:      mux,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 0,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	return s.httpSrv.Serve(s.listener)
@@ -168,6 +181,17 @@ func (s *Server) dispatch(ctx context.Context, req JSONRPCRequest) JSONRPCRespon
 	}
 }
 
+func (s *Server) resolveToolsets(params *workersidecar.RunParams) []string {
+	if s.profile == nil {
+		return nil
+	}
+	requested := params.Toolsets
+	if len(requested) == 0 && len(s.statelessTools) > 0 {
+		requested = s.statelessTools
+	}
+	return s.profile.Resolve(requested)
+}
+
 // handleRun implements acp.run method.
 func (s *Server) handleRun(ctx context.Context, req JSONRPCRequest) JSONRPCResponse {
 	var params workersidecar.RunParams
@@ -180,27 +204,65 @@ func (s *Server) handleRun(ctx context.Context, req JSONRPCRequest) JSONRPCRespo
 	}
 
 	s.mu.Lock()
-	if _, exists := s.runs[params.RunID]; exists {
+	if existing, exists := s.runs[params.RunID]; exists && existing.running {
 		s.mu.Unlock()
 		return NewServerError(req.ID, fmt.Sprintf("duplicate run_id: %s", params.RunID))
 	}
-	s.runs[params.RunID] = &runState{running: true}
+	state := &runState{running: true}
+	s.runs[params.RunID] = state
 	s.progress[params.RunID] = &progressBucket{}
 	s.mu.Unlock()
 
 	defer func() {
 		s.mu.Lock()
-		if state, ok := s.runs[params.RunID]; ok {
-			state.running = false
+		if st, ok := s.runs[params.RunID]; ok {
+			st.running = false
 		}
 		s.mu.Unlock()
 	}()
 
-	result := s.backend.RunSession(ctx, params)
+	params.ResolvedToolsets = s.resolveToolsets(&params)
+
+	if params.Model != "" {
+		if err := s.runtime.CheckModel(ctx, params.Model); err != nil {
+			msg := err.Error()
+			return NewSuccessResponse(req.ID, workersidecar.RunResult{
+				Status:    "failed",
+				Summary:   msg,
+				Error:     msg,
+				ErrorCode: "model_unavailable",
+			})
+		}
+	}
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	state.cancel = cancel
+
+	type runOutcome struct {
+		result workersidecar.RunResult
+	}
+	outCh := make(chan runOutcome, 1)
+	go func() {
+		result := s.backend.RunSession(runCtx, params)
+		outCh <- runOutcome{result: result}
+	}()
+
+	var result workersidecar.RunResult
+	select {
+	case <-ctx.Done():
+		cancel()
+		result = workersidecar.RunResult{
+			Status:  "failed",
+			Summary: "request cancelled",
+			Error:   ctx.Err().Error(),
+		}
+	case out := <-outCh:
+		result = out.result
+	}
 
 	s.mu.Lock()
-	if state, ok := s.runs[params.RunID]; ok {
-		state.result = &result
+	if st, ok := s.runs[params.RunID]; ok {
+		st.result = &result
 	}
 	s.mu.Unlock()
 
@@ -214,9 +276,9 @@ func (s *Server) handleCancel(ctx context.Context, req JSONRPCRequest) JSONRPCRe
 		return NewServerError(req.ID, fmt.Sprintf("invalid params: %v", err))
 	}
 
-	s.mu.RLock()
+	s.mu.Lock()
 	state, exists := s.runs[params.RunID]
-	s.mu.RUnlock()
+	s.mu.Unlock()
 
 	if !exists || !state.running {
 		return NewSuccessResponse(req.ID, workersidecar.CancelResult{
@@ -225,6 +287,9 @@ func (s *Server) handleCancel(ctx context.Context, req JSONRPCRequest) JSONRPCRe
 		})
 	}
 
+	if state.cancel != nil {
+		state.cancel()
+	}
 	if state.process != nil {
 		state.process.Cancel()
 	}
@@ -300,8 +365,8 @@ func (s *Server) handleToolsets(ctx context.Context, req JSONRPCRequest) JSONRPC
 	})
 }
 
-// enqueueProgress adds a progress summary to the run's bucket.
-func (s *Server) enqueueProgress(runID, summary string) {
+// EnqueueProgress adds a progress summary to the run's bucket.
+func (s *Server) EnqueueProgress(runID, summary string) {
 	s.mu.RLock()
 	bucket, exists := s.progress[runID]
 	s.mu.RUnlock()
@@ -313,4 +378,13 @@ func (s *Server) enqueueProgress(runID, summary string) {
 	bucket.mu.Lock()
 	bucket.summaries = append(bucket.summaries, summary)
 	bucket.mu.Unlock()
+}
+
+// BindRunProcess attaches the live subagent process to a run for acp.cancel.
+func (s *Server) BindRunProcess(runID string, proc *subagent.Process) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if state, ok := s.runs[runID]; ok {
+		state.process = proc
+	}
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/dimetron/pi-go/internal/httplog"
 	"github.com/dimetron/pi-go/internal/logger"
 	"github.com/dimetron/pi-go/internal/lsp"
+	"github.com/dimetron/pi-go/internal/masterplanner"
 	"github.com/dimetron/pi-go/internal/memory"
 	"github.com/dimetron/pi-go/internal/notice"
 	"github.com/dimetron/pi-go/internal/provider"
@@ -223,8 +224,16 @@ func deferredInit(
 		default:
 		}
 	}
-	agentTools, _ := tools.AgentTools(orch, agentEventCB)
-	coreTools = append(coreTools, agentTools...)
+	if !acpStatelessChild() {
+		agentTools, _ := tools.AgentTools(orch, agentEventCB)
+		coreTools = append(coreTools, agentTools...)
+	}
+	mpTools, mpErr := tools.AppendMasterPlannerTools(coreTools)
+	if mpErr != nil {
+		fail(mpErr)
+		return
+	}
+	coreTools = adjustToolsForACPExecutor(mpTools)
 
 	// Stream live shell output to the same channel the subagent cards use. The
 	// prefix keeps the two streams apart; the non-blocking send in agentEventCB
@@ -539,6 +548,9 @@ func appendDeferredMemoryTools(cfg config.Config, cwd string, coreTools []adktoo
 func buildDeferredInstructionParts() agent.InstructionParts {
 	if flagSystem != "" {
 		return agent.InstructionParts{Base: flagSystem}
+	}
+	if masterplanner.Enabled() {
+		return agent.InstructionParts{Base: masterplanner.SystemPrompt}
 	}
 	return agent.LoadInstructionParts(agent.SystemInstruction)
 }

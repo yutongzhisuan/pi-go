@@ -182,7 +182,17 @@ func newGatewayCancelTaskTool() (tool.Tool, error) {
 
 // Tool handlers
 
+func gatewayGuard() (string, bool) {
+	if r := DelegationRefusalJSON(); r != "" {
+		return r, true
+	}
+	return "", false
+}
+
 func gatewayDispatchTask(ctx agent.Context, input DispatchTaskInput) (string, error) {
+	if msg, stop := gatewayGuard(); stop {
+		return msg, nil
+	}
 	if strings.TrimSpace(input.Goal) == "" {
 		return jsonOut(map[string]any{"error": "invalid_args", "message": "'goal' is required"}), nil
 	}
@@ -236,6 +246,9 @@ func gatewayDispatchTask(ctx agent.Context, input DispatchTaskInput) (string, er
 }
 
 func gatewayDispatchBatch(ctx agent.Context, input DispatchBatchInput) (string, error) {
+	if msg, stop := gatewayGuard(); stop {
+		return msg, nil
+	}
 	if len(input.Specs) == 0 {
 		return jsonOut(map[string]any{"error": "invalid_args", "message": "'specs' must be a non-empty array"}), nil
 	}
@@ -301,6 +314,9 @@ func gatewayDispatchBatch(ctx agent.Context, input DispatchBatchInput) (string, 
 }
 
 func gatewayWatchTask(ctx agent.Context, input WatchTaskInput) (string, error) {
+	if msg, stop := gatewayGuard(); stop {
+		return msg, nil
+	}
 	if input.TaskID == "" && input.BatchID == "" {
 		return jsonOut(map[string]any{"error": "invalid_args", "message": "'task_id' or 'batch_id' is required"}), nil
 	}
@@ -455,6 +471,9 @@ func gatewayWatchTask(ctx agent.Context, input WatchTaskInput) (string, error) {
 }
 
 func gatewayGetTaskResult(ctx agent.Context, input GetTaskResultInput) (string, error) {
+	if msg, stop := gatewayGuard(); stop {
+		return msg, nil
+	}
 	if input.TaskID == "" {
 		return jsonOut(map[string]any{"error": "invalid_args", "message": "'task_id' is required"}), nil
 	}
@@ -495,6 +514,9 @@ func gatewayGetTaskResult(ctx agent.Context, input GetTaskResultInput) (string, 
 }
 
 func gatewayListTasks(ctx agent.Context, input ListTasksInput) (string, error) {
+	if msg, stop := gatewayGuard(); stop {
+		return msg, nil
+	}
 	client, err := getClient()
 	if err != nil {
 		return "", err
@@ -545,6 +567,9 @@ func gatewayListTasks(ctx agent.Context, input ListTasksInput) (string, error) {
 }
 
 func gatewayListModels(ctx agent.Context, input ListModelsInput) (string, error) {
+	if msg, stop := gatewayGuard(); stop {
+		return msg, nil
+	}
 	client, err := getClient()
 	if err != nil {
 		return "", err
@@ -578,6 +603,9 @@ func gatewayListModels(ctx agent.Context, input ListModelsInput) (string, error)
 }
 
 func gatewayListWorkers(ctx agent.Context, input ListWorkersInput) (string, error) {
+	if msg, stop := gatewayGuard(); stop {
+		return msg, nil
+	}
 	client, err := getClient()
 	if err != nil {
 		return "", err
@@ -618,6 +646,9 @@ func gatewayListWorkers(ctx agent.Context, input ListWorkersInput) (string, erro
 }
 
 func gatewayCancelTask(ctx agent.Context, input CancelTaskInput) (string, error) {
+	if msg, stop := gatewayGuard(); stop {
+		return msg, nil
+	}
 	if input.TaskID == "" && input.BatchID == "" {
 		return jsonOut(map[string]any{"error": "invalid_args", "message": "'task_id' or 'batch_id' is required"}), nil
 	}
