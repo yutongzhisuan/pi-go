@@ -1,0 +1,19 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "acp.run",
+  "params": {
+    "run_id": "test-run-123",
+    "task_id": "task-456",
+    "attempt": 1,
+    "goal": "List files in the current directory",
+    "params": {},
+    "context": null,
+    "toolsets": ["file", "web"],
+    "timeout_seconds": 600,
+    "first_progress_seconds": 10,
+    "trace_context": {},
+    "model": null,
+    "master_session_id": null
+  }
+}

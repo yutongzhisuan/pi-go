@@ -37,16 +37,55 @@ pi worker-sidecar --stateless --executor-toolsets file,web,todo
 
 ### Command-Line Flags
 
+#### Connection Flags
+
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--socket` | From env or Hermes default | Unix socket path |
-| `--http` | `false` | Use HTTP instead of Unix socket |
+| `--socket` | `~/.xhermes/sub_agent/acp.sock` | Unix socket path (Env: `TASK_RELAY_ACP_RPC_SOCKET`) |
+| `--http` | `false` | Use HTTP instead of Unix socket (Env: `TASK_RELAY_ACP_RPC_HTTP=1`) |
 | `--host` | `127.0.0.1` | HTTP host address |
 | `--port` | `9105` | HTTP port |
-| `--stateless` | `false` | Run in stateless mode |
-| `--executor-toolsets` | `file,web,todo` | Toolset whitelist (comma-separated) |
-| `--executor-allow-extra` | (empty) | Additional toolsets to allow |
-| `--workdir-root` | System temp | Root directory for run workdirs |
+
+#### Execution Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--stateless` | `false` | Run in stateless mode (disposable session, no local state) |
+| `--stateless-toolsets` | (empty) | Toolsets for stateless tasks when none requested |
+| `--state-root` | (temp) | Directory for ephemeral stateless session store |
+| `--workdir-root` | System temp | Parent directory for per-task temp workdirs |
+
+#### Sandbox Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--sandbox` | (none) | Sandbox backend: `docker` (implies `--stateless`) |
+| `--sandbox-image` | (default) | Docker image for sandboxed tasks |
+| `--sandbox-network` | `false` | Allow container network access |
+| `--sandbox-cpu` | (unlimited) | CPU limit for containers (e.g. `2.0`) |
+| `--sandbox-memory-mb` | (unlimited) | Memory limit in MB for containers |
+
+#### Confinement Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--local-confined` | `false` | Trusted-task lightweight mode (implies `--stateless`) |
+| `--local-confined-extra-deny` | (empty) | Extra deny globs for local-confined mode |
+
+#### Executor Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--executor-toolsets` | `file,web,todo` | Toolset whitelist (Env: `ACP_EXECUTOR_TOOLSETS`) |
+| `--executor-allow-extra` | (empty) | Additional toolsets (Env: `ACP_EXECUTOR_ALLOW_EXTRA`) |
+
+#### Progress Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--progress-mode` | `minimal` | Progress granularity: `minimal`, `tools`, `off` (Env: `ACP_PROGRESS_MODE`) |
+| `--checkpoint-every-steps` | `0` | Checkpoint every N steps (Env: `ACP_CHECKPOINT_EVERY_STEPS`) |
+| `--acp-progress-interval-seconds` | `5.0` | Min seconds between progress frames |
 
 ## Methods
 
@@ -203,3 +242,16 @@ Check:
 - Toolset is in allowed list (`--executor-toolsets`)
 - Not a local-state toolset in stateless mode
 - Toolset name is correct (see mapping table)
+
+### Docker sandbox not implemented
+
+If you see "Docker sandbox not yet implemented", the sidecar refuses to start with `--sandbox docker` because container isolation is not yet complete. This is a fail-safe: the sidecar will not silently ignore the sandbox flag. Remove `--sandbox` to proceed without container isolation, or wait for Docker support to be implemented.
+
+## Phase 1 Limitations
+
+- **Docker sandbox**: Not yet implemented. Flag parsing and validation are complete, but container execution is not. The sidecar fails closed when `--sandbox docker` is requested.
+- **Local-confined deny rules**: Flag accepted but approval policy enforcement not implemented.
+- **Checkpoint/resume**: Fields present in wire protocol but full resume logic not implemented.
+- **Master planner**: Integration deferred to phase 2.
+
+Use `--stateless` with the default toolset whitelist for secure remote task execution without Docker.
