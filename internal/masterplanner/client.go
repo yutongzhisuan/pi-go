@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -144,13 +143,19 @@ func (c *GatewayClient) ListWorkers(ctx context.Context, requireToolsets []strin
 	return c.postJSON(ctx, "/v1/agent/workers:list", body)
 }
 
-// ListModels lists schedulable models.
-func (c *GatewayClient) ListModels(ctx context.Context, region string) (map[string]any, error) {
+// ListAgentModels lists schedulable models (pool-wide).
+func (c *GatewayClient) ListAgentModels(ctx context.Context, region string) (map[string]any, error) {
 	body := map[string]any{}
 	if region != "" {
 		body["region"] = region
 	}
 	return c.postJSON(ctx, "/v1/agent/models:list", body)
+}
+
+// ListModels is a deprecated alias for ListAgentModels.
+// Deprecated: Use ListAgentModels instead.
+func (c *GatewayClient) ListModels(ctx context.Context, region string) (map[string]any, error) {
+	return c.ListAgentModels(ctx, region)
 }
 
 // CancelTask cancels a task or batch.
@@ -511,7 +516,14 @@ func encodeContext(ctx any) *TaskContext {
 		w := gzip.NewWriter(&buf)
 		w.Write(raw)
 		w.Close()
-		return &TaskContext{InlineGzip: base64.StdEncoding.EncodeToString(buf.Bytes())}
+		
+		hash := sha256.Sum256(raw)
+		return &TaskContext{
+			InlineGzip: &InlineGzip{
+				GzipData: buf.Bytes(),
+				SHA256:   fmt.Sprintf("%x", hash[:]),
+			},
+		}
 	}
 
 	return &TaskContext{Inline: string(raw)}
