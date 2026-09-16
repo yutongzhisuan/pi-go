@@ -1,7 +1,7 @@
 package confined
 
 import (
-	"fmt"
+	"encoding/json"
 	"strings"
 )
 
@@ -50,11 +50,12 @@ func MergeRules(extra []string) []string {
 	return out
 }
 
-// EnforceStartupPolicy returns an error when local-confined cannot be enforced yet.
-// pi-go bash does not yet implement Hermes-style approvals.deny glob matching on the sidecar path.
-func EnforceStartupPolicy(localConfined bool) error {
-	if !localConfined {
-		return nil
+// DenyRulesJSON serializes merged deny rules for PI_ACP_DENY_RULES on executor children.
+func DenyRulesJSON(extra []string) (string, error) {
+	rules := MergeRules(extra)
+	raw, err := json.Marshal(rules)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Errorf("--local-confined requires approval deny enforcement (not available on pi-go worker sidecar yet); use --sandbox docker for untrusted tasks or run without --local-confined")
+	return string(raw), nil
 }

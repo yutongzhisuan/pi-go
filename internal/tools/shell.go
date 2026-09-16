@@ -39,6 +39,15 @@ func shellCommand(ctx context.Context, script string) *exec.Cmd {
 	return buildShellCommand(ctx, CurrentShellKind(), script)
 }
 
+// shellCommandInDir runs script with an explicit host working directory (docker sandbox mounts it).
+func shellCommandInDir(ctx context.Context, hostWorkDir, script string) (*exec.Cmd, error) {
+	if dockerTerminalEnabled() {
+		return dockerShellCommand(ctx, hostWorkDir, script)
+	}
+	cmd := buildShellCommand(ctx, CurrentShellKind(), script)
+	return cmd, nil
+}
+
 // psExitEpilogue makes powershell.exe report failure the way bash does.
 //
 // Two separate things can fail and only one of them sets an exit code.

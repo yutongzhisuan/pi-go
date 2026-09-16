@@ -259,7 +259,11 @@ func (s *BashSupervisor) start(ctx context.Context, req runRequest) (*bashProc, 
 		done:        make(chan struct{}),
 	}
 
-	cmd := shellCommand(runCtx, req.command)
+	cmd, err := shellCommandInDir(runCtx, req.dir, req.command)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	cmd.Dir = req.dir
 	cmd.Stdout = &sinkWriter{proc: p, stream: p.stdout, kind: "output"}
 	cmd.Stderr = &sinkWriter{proc: p, stream: p.stderr, kind: "stderr"}

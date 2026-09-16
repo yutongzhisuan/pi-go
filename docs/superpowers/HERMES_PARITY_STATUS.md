@@ -1,36 +1,43 @@
 # Hermes → pi-go parity status (2026-09-16)
 
-Branch: `cursor/hermes-parity-gaps-f96f` (single draft PR).
+Branch: `cursor/hermes-sidecar-parity-da3e` (draft PR).
 
-## Closed in this PR
+## Closed in this PR (Worker ACP sidecar)
 
-### Master planner
-- `gateway_*` tools registered on the main pi agent when `PI_MASTER_PLANNER=1` or `pi --master-planner` (interactive + non-interactive).
-- Hermes `planner_prompt` ported as `internal/masterplanner/prompt.go` and used as the system prompt when master planner mode is on (unless `--system` overrides).
-- Delegation refusal: `PI_DELEGATED_CHILD=1` returns Hermes-shaped `delegated_child_refused` from all eight gateway tools (stub for future `delegate_task` wiring).
+### Docker sandbox (`--sandbox docker`)
+- Sidecar applies Hermes-equivalent `TERMINAL_*` env via `apply_sandbox_env` parity (`internal/workersidecar/sandbox`).
+- Startup **fail-closed** when the Docker CLI/daemon is unavailable; succeeds when Docker works on Linux.
+- Executor children inherit sandbox env; **bash** runs through `docker run --rm` with network-off-by-default, CPU/memory limits, cap-drop, and task workdir bind-mounted to `/workspace`.
+- Tests: env wiring, arg assembly, refuse-when-unavailable (skip-if-no-docker integration probe).
 
-### Worker ACP sidecar
-- **Cancel**: `acp.run` executes in a cancellable context; `acp.cancel` cancels context and kills the child `pi` process.
-- **Progress**: backend throttling + `EnqueueProgress` wired; `--progress-mode`, `--acp-progress-interval-seconds`, env `ACP_PROGRESS_MODE`.
-- **Toolsets**: profile `Resolve` applied before spawn; child `pi` gets `PI_ACP_RESOLVED_TOOLSETS` and tool filtering via `tools.FilterByExecutorToolsets`.
-- **Model fail-fast**: `runtime.CheckModel` before session start → `status=failed`, `error_code=model_unavailable`.
-- **Docker sandbox**: fail-closed refuse at startup (`internal/workersidecar/sandbox`).
-- **`--local-confined`**: fail-closed refuse until bash deny globs are enforced (no warning-only path).
-- **Checkpoints / resume**: L1 checkpoints on `--checkpoint-every-steps` / `ACP_CHECKPOINT_EVERY_STEPS`; `resume_from_checkpoint` + `resume_blob` prepended to goal.
-- **CLI flags**: `--stateless-toolsets`, `--state-root`, progress/checkpoint flags wired through `internal/workersidecar/options`.
-- **Long HTTP runs**: `WriteTimeout` disabled on sidecar HTTP server.
+### `--local-confined`
+- Default + extra deny globs merged (`DEFAULT_LOCAL_DENY_RULES` parity).
+- Deny globs enforced on **bash** via `PI_ACP_DENY_RULES` (fnmatch-style, case-insensitive).
+- Sidecar starts with `--local-confined` (no longer fail-closed refuse-only).
 
-## Still deferred (unchanged scope)
+### Checkpoints / resume
+- Mid-run checkpoints emit `checkpoint_id`, `summary`, `fields.step`, empty `resume_blob` (Hermes L1 step milestones).
+- Terminal cancel/fail **salvage** fills `resume_blob` from partial `result_text` when useful for Hub uplink.
+- `resume_from_checkpoint` + `resume_blob` still prepended into the child goal (Hermes acp_backend behavior).
+
+## Known gaps (documented, tested subset only)
+
+| Area | Hermes | pi-go (this PR) |
+|------|--------|-----------------|
+| Docker scope | Terminal + file/code tools share container env | **Bash only**; file tools remain host `os.Root` sandbox |
+| Deny scope | `approvals.deny` before all approval bypasses | **Bash only**; no Hermes command deobfuscation variants |
+| Container lifecycle | Per-session reusable container | **Per bash invocation** `docker run --rm` (disposable, simpler) |
+| Checkpoint L2 | `responses_payload` / model session replay | Not ported (out of scope) |
+
+## Unchanged / still deferred
 
 - Hub / swarm-network contract changes.
 - `client-daemon` host swap.
-- Full Docker container-per-task sandbox (Hermes `apply_sandbox_env` execution path).
-- `--local-confined` approval deny enforcement on pi-go bash (requires approvals layer).
-- Full Hermes `responses_payload` / `model_sessions` / deep checkpoint L2 resume.
-- Real `delegate_task` child detection (env stub only until subagent delegate lands).
+- Master planner (`PI_MASTER_PLANNER`) — separate PR track.
+- Full Hermes `responses_payload` / `model_sessions` deep resume.
 
 ## Verify
 
 ```bash
-go test ./internal/workersidecar/... ./internal/masterplanner/...
+go test ./internal/workersidecar/...
 ```
