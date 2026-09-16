@@ -1,0 +1,9 @@
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "acp.cancel",
+  "params": {
+    "run_id": "test-run-123",
+    "reason": "timeout"
+  }
+}
