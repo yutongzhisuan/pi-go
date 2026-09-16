@@ -19,3 +19,27 @@ func TestMatchHardlineShutdownAtCommandPosition(t *testing.T) {
 		t.Fatal("expected reboot block")
 	}
 }
+
+func TestMatchHardlineBlocksRedirectToBlockDevice(t *testing.T) {
+	if _, ok := MatchHardline("echo x > /dev/sda"); !ok {
+		t.Fatal("expected redirect to block device block")
+	}
+}
+
+func TestMatchHardlineBlocksKillAll(t *testing.T) {
+	if _, ok := MatchHardline("kill -1"); !ok {
+		t.Fatal("expected kill -1 block")
+	}
+}
+
+func TestMatchHardlineBlocksRmEtc(t *testing.T) {
+	if _, ok := MatchHardline("rm -rf /etc"); !ok {
+		t.Fatal("expected rm /etc block")
+	}
+}
+
+func TestMatchHardlineSystemctlAfterSeparator(t *testing.T) {
+	if _, ok := MatchHardline("true; systemctl poweroff"); !ok {
+		t.Fatal("expected systemctl poweroff after ;")
+	}
+}

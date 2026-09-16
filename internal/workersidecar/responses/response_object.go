@@ -23,7 +23,7 @@ func WrapRunResult(result workersidecar.RunResult, parsed ParsedEnvelope, taskID
 		respStatus = "cancelled"
 	}
 	text := result.ResultText
-	if text == "" {
+	if text == "" && result.Summary != "" && !durationOnlySummary(result.Summary) {
 		text = result.Summary
 	}
 	var tools []interface{}
@@ -128,6 +128,15 @@ func BuildResponseObject(responseID, envelopeModel, boundModel, status, outputTe
 		"error":                errField,
 		"metadata":             map[string]interface{}{"task_id": taskID, "truncated": false},
 	}
+}
+
+func durationOnlySummary(summary string) bool {
+	s := strings.TrimSpace(summary)
+	if !strings.HasPrefix(s, "Completed in ") {
+		return false
+	}
+	rest := strings.TrimPrefix(s, "Completed in ")
+	return strings.HasSuffix(rest, "s") || strings.HasSuffix(rest, "m") || strings.HasSuffix(rest, "h")
 }
 
 func toolsOrEmpty(tools []interface{}) []interface{} {
