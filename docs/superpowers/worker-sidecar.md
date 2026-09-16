@@ -218,10 +218,11 @@ Socket permissions: `0600` (owner read/write only)
 
 ## Differences from Hermes
 
-- No master planner integration
-- No client-daemon host swap
-- Sandbox configuration may differ
-- Progress/checkpoint semantics follow pi-go agent behavior
+- Master planner runs on the main `pi` agent (`--master-planner` / `PI_MASTER_PLANNER=1`), not in this subcommand.
+- No client-daemon host swap.
+- Docker sandbox: fail-closed refuse until container-per-task execution is implemented.
+- `--local-confined`: fail-closed refuse until pi-go bash deny globs match Hermes `DEFAULT_LOCAL_DENY_RULES`.
+- See `docs/superpowers/HERMES_PARITY_STATUS.md` for the full closed vs deferred list.
 
 ## Troubleshooting
 

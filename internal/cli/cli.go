@@ -34,6 +34,7 @@ import (
 	"github.com/dimetron/pi-go/internal/jsonrpc"
 	"github.com/dimetron/pi-go/internal/logger"
 	"github.com/dimetron/pi-go/internal/lsp"
+	"github.com/dimetron/pi-go/internal/masterplanner"
 	"github.com/dimetron/pi-go/internal/memory"
 	"github.com/dimetron/pi-go/internal/otel"
 	"github.com/dimetron/pi-go/internal/palace"
@@ -79,6 +80,7 @@ var (
 	flagTraceHTTP    bool
 	flagA2AAddr      string
 	flagA2AReadyAddr string
+	flagMasterPlanner bool
 
 	// lastSessionFile persists the last session start metadata across invocations.
 	// Used to detect rapid restart loops (e.g. print mode crashes).
@@ -215,6 +217,7 @@ Set a default in ~/.pi-go/config.json so --model is only needed to deviate;
 	cmd.Flags().BoolVar(&flagSlow, "slow", false, "Use the slow role (powerful model)")
 	cmd.Flags().BoolVar(&flagPlan, "plan", false, "Use the plan role (planning model)")
 	cmd.Flags().StringVar(&flagSystem, "system", "", "System instruction (overrides default)")
+	cmd.Flags().BoolVar(&flagMasterPlanner, "master-planner", false, "Enable Hermes master planner gateway_* tools and planner system prompt (Env: PI_MASTER_PLANNER=1)")
 	cmd.Flags().StringArrayVar(&flagHeaders, "header", nil, "Extra HTTP header for LLM requests (key=value, repeatable)")
 	// Allow bare --header so a following flag is not consumed as a header value.
 	if f := cmd.Flags().Lookup("header"); f != nil {
@@ -613,6 +616,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	// whether the caller asked for it. Record explicit use here so
 	// dispatchMode can honor the pre-rename `--mode rpc --socket` spelling.
 	flagSocketChanged = cmd.Flags().Changed("socket")
+	masterplanner.SetCLIEnabled(flagMasterPlanner)
 
 	// Load API keys from ~/.pi-go/.env (set by /login command).
 	loadDotEnv()
@@ -718,13 +722,23 @@ func initNonInteractiveRuntime(ctx context.Context, cfg *config.Config, cwd, san
 		default:
 		}
 	}
-	agentTools, err := tools.AgentTools(orch, agentEventCB)
+	if !acpStatelessChild() {
+		agentTools, err := tools.AgentTools(orch, agentEventCB)
+		if err != nil {
+			orch.Shutdown()
+			_ = sandbox.Close()
+			return nil, fmt.Errorf("creating agent tools: %w", err)
+		}
+		coreTools = append(coreTools, agentTools...)
+	}
+
+	coreTools, err = tools.AppendMasterPlannerTools(coreTools)
 	if err != nil {
 		orch.Shutdown()
 		_ = sandbox.Close()
-		return nil, fmt.Errorf("creating agent tools: %w", err)
+		return nil, err
 	}
-	coreTools = append(coreTools, agentTools...)
+	coreTools = adjustToolsForACPExecutor(coreTools)
 
 	bashSup.SetSink(func(execID, kind, content string) {
 		agentEventCB(execID, tui.BashEventKind(kind), content)
@@ -932,6 +946,9 @@ func appendNonInteractiveMemoryTools(coreTools []adktool.Tool, memStore memory.S
 // one unless --system replaces it, with the palace memory context appended.
 func buildNonInteractiveInstruction(palaceContext string) string {
 	instruction := agent.LoadInstruction(agent.SystemInstruction)
+	if masterplanner.Enabled() && flagSystem == "" {
+		instruction = masterplanner.SystemPrompt
+	}
 	if flagSystem != "" {
 		instruction = flagSystem
 	}

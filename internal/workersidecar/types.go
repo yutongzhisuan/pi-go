@@ -18,6 +18,8 @@ type RunParams struct {
 	ResumeBlob            string                 `json:"resume_blob,omitempty"`
 	Model                 string                 `json:"model,omitempty"`
 	MasterSessionID       string                 `json:"master_session_id,omitempty"`
+	// ResolvedToolsets is filled by the RPC server after executor profile intersection (not on wire).
+	ResolvedToolsets []string `json:"-"`
 }
 
 // RunResult defines the result returned by acp.run method.
