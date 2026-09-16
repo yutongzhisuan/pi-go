@@ -1,9 +1,7 @@
 package backend
 
 import (
-	"fmt"
 	"strings"
-	"time"
 
 	"github.com/dimetron/pi-go/internal/workersidecar"
 )
@@ -20,11 +18,13 @@ func mergeAssistantText(streamed, fromProcess string) string {
 	return strings.TrimSpace(fromProcess)
 }
 
-// summaryForCompletion uses assistant text when present; duration is only a fallback.
-func summaryForCompletion(assistantText string, duration time.Duration) string {
+const emptyAssistantSummary = "Executor completed without assistant text"
+
+// summaryForCompletion uses assistant text when present.
+func summaryForCompletion(assistantText string) string {
 	text := strings.TrimSpace(assistantText)
 	if text == "" {
-		return fmt.Sprintf("Completed in %v", duration.Round(time.Second))
+		return ""
 	}
 	if len(text) > summaryMaxLen {
 		return text[:summaryMaxLen]
@@ -32,11 +32,20 @@ func summaryForCompletion(assistantText string, duration time.Duration) string {
 	return text
 }
 
-func completedRunResult(assistantText string, duration time.Duration, checkpoint *workersidecar.CheckpointInfo) workersidecar.RunResult {
+func completedRunResult(assistantText string, checkpoint *workersidecar.CheckpointInfo) workersidecar.RunResult {
 	text := strings.TrimSpace(assistantText)
+	if text == "" {
+		return workersidecar.RunResult{
+			Status:     "failed",
+			Summary:    emptyAssistantSummary,
+			Error:      "executor produced no assistant text",
+			ErrorCode:  "empty_assistant_output",
+			Checkpoint: checkpoint,
+		}
+	}
 	return workersidecar.RunResult{
 		Status:     "completed",
-		Summary:    summaryForCompletion(text, duration),
+		Summary:    summaryForCompletion(text),
 		ResultText: text,
 		Usage:      &workersidecar.UsageInfo{},
 		Checkpoint: checkpoint,

@@ -6,7 +6,7 @@ Branch: `cursor/acp-result-text-parity-3ed7` (draft PR on `main` after squash-me
 
 ### ACP `result_text` / `summary` from assistant output
 - `collectResults` no longer returns on `message_end` before `proc.Wait()`; it merges streamed deltas with the child pi `--mode json` accumulated stdout.
-- Completed runs set `result_text` and `summary` from assistant text when present; duration phrases (`Completed in …`) are only used when there is no assistant text.
+- Completed runs set `result_text` and `summary` from assistant text when present. Missing assistant text after a clean child exit yields `failed` / `empty_assistant_output` (not a duration-only `Completed in …` success shape).
 - `responses.v1` wrap still emits OpenAI Responses JSON, but `output_text` is assistant text (not a duration fallback).
 
 ### Hardline deny depth (portable subset)

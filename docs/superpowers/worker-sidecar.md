@@ -222,7 +222,7 @@ Socket permissions: `0600` (owner read/write only)
 - No client-daemon host swap.
 - Docker sandbox: per-run container + `docker exec` bash; read/write/edit/grep/find route through the container filesystem at `/workspace` when `PI_WORKER_DOCKER_*` is set (bind-mounted workdir is source of truth).
 - `--local-confined`: Hermes hardline floor + default deny globs on executor bash (portable subset — not full Python `approvals.deny` deobfuscation).
-- Completed `acp.run` maps the executor assistant reply into `result_text` / `summary` (not duration-only placeholders).
+- Completed `acp.run` maps the executor assistant reply into `result_text` / `summary`. If the child exits cleanly but emits no assistant text, the run returns `status: failed` with `error_code: empty_assistant_output` (sidecar logs a warning); there is no `Completed in …` duration placeholder.
 - L2 checkpoint resume (Responses object replay, model session restore) not implemented — L1 goal/blob/summary resume only.
 - See `docs/superpowers/HERMES_PARITY_STATUS.md` for the full closed vs deferred list.
 
