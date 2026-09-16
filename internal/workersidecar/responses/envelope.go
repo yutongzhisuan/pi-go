@@ -21,6 +21,8 @@ type ParsedEnvelope struct {
 	Instructions    string
 	MaxResultBytes  int
 	RequestEcho     map[string]interface{}
+	RawInput        interface{}
+	Replay          ReplaySplit
 }
 
 // ParseEnvelope parses the OpenAI Responses envelope when present in task params.
@@ -45,7 +47,14 @@ func ParseEnvelope(params map[string]interface{}, goal, boundModel string) Parse
 		return ParsedEnvelope{Present: true, ErrorCode: ErrorInvalidEnvelope}
 	}
 	instructions := stringField(req["instructions"])
-	userMessage := normalizeUserMessage(req["input"], instructions, goal)
+	rawInput := req["input"]
+	replay := SplitReplayMessages(rawInput)
+	var userMessage string
+	if replay.Structured {
+		userMessage = UserMessageFromSplit(replay, instructions, goal)
+	} else {
+		userMessage = normalizeUserMessage(rawInput, instructions, goal)
+	}
 	responseID := stringField(env["response_id"])
 	reqModel := stringField(req["model"])
 	echoModel := reqModel
@@ -66,6 +75,8 @@ func ParseEnvelope(params map[string]interface{}, goal, boundModel string) Parse
 		Instructions:   instructions,
 		MaxResultBytes: maxBytes,
 		RequestEcho:    req,
+		RawInput:       rawInput,
+		Replay:         replay,
 	}
 }
 

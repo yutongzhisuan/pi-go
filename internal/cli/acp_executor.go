@@ -1,18 +1,21 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 
 	adktool "google.golang.org/adk/v2/tool"
 
 	"github.com/dimetron/pi-go/internal/tools"
+	"github.com/dimetron/pi-go/internal/workersidecar/responses"
 )
 
 const (
 	envACPExecutor         = "PI_ACP_EXECUTOR"
 	envACPResolvedToolsets = "PI_ACP_RESOLVED_TOOLSETS"
 	envACPStateless        = "PI_ACP_STATELESS"
+	envACPReplayHistory    = "PI_ACP_REPLAY_HISTORY"
 )
 
 func acpExecutorActive() bool {
@@ -45,4 +48,24 @@ func adjustToolsForACPExecutor(coreTools []adktool.Tool) []adktool.Tool {
 		return nil
 	}
 	return tools.FilterByExecutorToolsets(coreTools, tools.ParseResolvedExecutorToolsets(raw))
+}
+
+// applyACPReplayHistory prepends structured replay context for Responses L2 executor children.
+func applyACPReplayHistory(prompt string) string {
+	if !acpExecutorActive() {
+		return prompt
+	}
+	raw := strings.TrimSpace(os.Getenv(envACPReplayHistory))
+	if raw == "" {
+		return prompt
+	}
+	var history []map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &history); err != nil || len(history) == 0 {
+		return prompt
+	}
+	block := responses.FormatReplayHistoryBlock(history)
+	if block == "" {
+		return prompt
+	}
+	return "[Prior conversation context]\n" + block + "\n\n[Current task]\n" + prompt
 }

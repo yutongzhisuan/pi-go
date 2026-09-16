@@ -1,38 +1,37 @@
 # Hermes → pi-go parity status (2026-09-16)
 
-Branch: `cursor/acp-result-text-parity-3ed7` (draft PR on `main` after squash-merge #10 / `6b1f546`).
+Branch: `cursor/responses-l2-replay-sse-f9e1` (PR1 — Responses L2 replay + item SSE).
 
-## Closed in this PR
+Design: [`docs/superpowers/specs/2026-09-16-hermes-l2-delegate-parity-design.md`](specs/2026-09-16-hermes-l2-delegate-parity-design.md) §1.
 
-### ACP `result_text` / `summary` from assistant output
-- `collectResults` no longer returns on `message_end` before `proc.Wait()`; it merges streamed deltas with the child pi `--mode json` accumulated stdout.
-- Completed runs set `result_text` and `summary` from assistant text when present. Missing assistant text after a clean child exit yields `failed` / `empty_assistant_output` (not a duration-only `Completed in …` success shape).
-- `responses.v1` wrap still emits OpenAI Responses JSON, but `output_text` is assistant text (not a duration fallback).
+## Closed in PR1 (Responses L2)
 
-### Hardline deny depth (portable subset)
-- Extended Hermes `HARDLINE_PATTERNS` subset: protected `rm` targets (`/etc`, `/usr`, …), redirect-to-block-device, `kill -1`, `init 0/6`, `systemctl poweroff|reboot|halt|kexec`, `telinit 0/6`.
-- Command-position anchor (`_CMDPOS`) now includes `;`, `|`, and `&` separators (Hermes-aligned).
-- Still **not** full Python `approvals.deny` deobfuscation or the full `DANGEROUS_PATTERNS` ask/yolo layer.
+### Structured input replay (`split_replay_messages` subset)
+- `responses.v1` parsing retains raw `request.input` items and applies `SplitReplayMessages`: trailing user → replay history + current user message; otherwise legacy flatten.
+- Executor children receive `PI_ACP_REPLAY_HISTORY` (JSON history items) and a prompt built from the last user turn only; `applyACPReplayHistory` injects formatted prior turns before the current task in `pi --mode json`.
+- **Not** cross-checkpoint model-session hot restore — checkpoint resume stays L1 (`resume_blob` / `resume_summary` in goal).
 
-## Carried from #10 (unchanged)
+### Item-level SSE (`turn_output_items` / `response.output_item.added`)
+- On the Responses envelope path, the sidecar emits `response.output_item.added` events (assistant message + function_call items) via `ResponseEventCallback` → `acp.progress` drain field `response_events` (additive JSON; summaries unchanged).
 
-- Docker file-tool remoting (`read` / `write` / `edit` / `grep` / `find`) via per-run container + bind-mounted workdir.
-- L1 step checkpoints, envelope user-message extraction, local-confined fnmatch deny globs.
-- Terminal `result_text` Responses JSON wrap when `responses.v1` envelope is present.
+## Carried from prior worker-sidecar parity (#10–#12)
+
+- ACP `result_text` / empty-assistant fail-closed, Docker file-tool remoting, L1 step checkpoints, local-confined deny globs, terminal Responses JSON wrap.
 
 ## Still deferred
 
 | Item | Why irreducible in-repo |
 |------|-------------------------|
-| Hub / swarm-network contract changes | Out of scope (wire owned by platform). |
+| Hub / swarm-network contract changes | Out of scope (wire owned by platform). `response_events` on `acp.progress` is the minimal sidecar extension for item JSON. |
 | `client-daemon` host swap | Out of scope (separate binary). |
-| Modal / SSH backends, cross-process persistent containers | Product scope; not a sidecar-only patch. |
-| Full Hermes `approvals.deny` / `DANGEROUS_PATTERNS` | Python-specific deobfuscation and approval UX; pi-go ships hardline + fnmatch deny only. |
-| L2 `model_sessions` / tool-item replay | pi-go session store has no Hermes `split_replay_messages` / checkpoint blob model; faking replay would break resume semantics. L1 goal/blob/summary resume remains. |
-| Real `delegate_task` child detection | pi-go has no `delegate_task` spawn path yet; `PI_DELEGATED_CHILD` is wired for master-planner refusal but nothing sets it on children until delegate_task lands. |
+| Modal / SSH backends | Product scope. |
+| Full Hermes `approvals.deny` / `DANGEROUS_PATTERNS` | Python-specific deobfuscation layer. |
+| L2 **model session** hot restore across checkpoints | Explicit non-goal; L1 blob/summary resume only. |
+| Real `delegate_task` spawn (PR2) | `PI_DELEGATED_CHILD` refusal exists; spawn path lands in PR2. |
+| PR3 delegate enhancements | list / steer / interrupt / orchestrator depth — after PR2. |
 
 ## Verify
 
 ```bash
-go test ./internal/workersidecar/... ./internal/tools/...
+go test ./internal/workersidecar/...
 ```

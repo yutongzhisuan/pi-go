@@ -73,6 +73,11 @@ func TestEnqueueProgressDrain(t *testing.T) {
 
 	srv.EnqueueProgress(runID, "hello")
 	srv.EnqueueProgress(runID, "world")
+	srv.EnqueueResponseEvent(runID, map[string]interface{}{
+		"type": "response.output_item.added",
+		"output_index": 0,
+		"item": map[string]interface{}{"type": "message", "role": "assistant"},
+	})
 
 	params, _ := json.Marshal(workersidecar.ProgressParams{RunID: runID})
 	req := JSONRPCRequest{JSONRPC: "2.0", Method: "acp.progress", Params: params, ID: 3}
@@ -80,6 +85,9 @@ func TestEnqueueProgressDrain(t *testing.T) {
 	out, ok := resp.Result.(workersidecar.ProgressResult)
 	if !ok || len(out.Summaries) != 2 {
 		t.Fatalf("expected 2 summaries, got %+v", resp.Result)
+	}
+	if len(out.ResponseEvents) != 1 {
+		t.Fatalf("expected 1 response event, got %+v", out.ResponseEvents)
 	}
 }
 

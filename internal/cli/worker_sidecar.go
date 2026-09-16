@@ -159,6 +159,9 @@ func runWorkerSidecar(cmd *cobra.Command, args []string) error {
 		ProgressCallback: func(runID, summary string) {
 			srv.EnqueueProgress(runID, summary)
 		},
+		ResponseEventCallback: func(runID string, event map[string]interface{}) {
+			srv.EnqueueResponseEvent(runID, event)
+		},
 		OnProcess: func(runID string, proc *subagent.Process) {
 			srv.BindRunProcess(runID, proc)
 		},

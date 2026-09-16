@@ -1744,6 +1744,7 @@ type jsonEvent struct {
 // runJSON runs the agent and emits JSONL events to stdout.
 // Events: message_start (once), text_delta (per text chunk), tool_call, tool_result, message_end (once).
 func runJSON(ctx context.Context, ag *agent.Agent, sessionID, prompt string, log *logger.Logger) error {
+	prompt = applyACPReplayHistory(prompt)
 	log.UserMessage(prompt)
 	// Auto-set the session title for JSON mode too. The first jsonEvent
 	// carries session_id, so the title is just metadata to keep meta.json

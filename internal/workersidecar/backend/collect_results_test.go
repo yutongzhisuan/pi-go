@@ -6,6 +6,7 @@ import (
 
 	"github.com/dimetron/pi-go/internal/subagent"
 	"github.com/dimetron/pi-go/internal/workersidecar/options"
+	"github.com/dimetron/pi-go/internal/workersidecar/responses"
 )
 
 // TestCollectResultsMergesProcessResult verifies that when the event stream
@@ -21,7 +22,7 @@ func TestCollectResultsMergesProcessResult(t *testing.T) {
 	b := New(Config{
 		Sidecar: options.SidecarOptions{},
 	})
-	result := b.collectResults(context.Background(), "run-1", "task-1", proc)
+	result := b.collectResults(context.Background(), "run-1", "task-1", proc, responses.ParsedEnvelope{})
 	if result.ResultText != "OK" {
 		t.Fatalf("result_text = %q want OK", result.ResultText)
 	}
@@ -40,7 +41,7 @@ func TestCollectResultsStreamedTextWinsOverWait(t *testing.T) {
 		nil,
 	)
 	b := New(Config{Sidecar: options.SidecarOptions{}})
-	result := b.collectResults(context.Background(), "run-1", "task-1", proc)
+	result := b.collectResults(context.Background(), "run-1", "task-1", proc, responses.ParsedEnvelope{})
 	if result.ResultText != "streamed" {
 		t.Fatalf("result_text = %q want streamed", result.ResultText)
 	}
@@ -53,7 +54,7 @@ func TestCollectResultsFailsWhenNoAssistantText(t *testing.T) {
 		nil,
 	)
 	b := New(Config{Sidecar: options.SidecarOptions{}})
-	result := b.collectResults(context.Background(), "run-empty", "task-1", proc)
+	result := b.collectResults(context.Background(), "run-empty", "task-1", proc, responses.ParsedEnvelope{})
 	if result.Status != "failed" || result.ErrorCode != "empty_assistant_output" {
 		t.Fatalf("result = %+v", result)
 	}
