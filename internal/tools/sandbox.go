@@ -2,11 +2,13 @@ package tools
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	gopath "path"
 	"path/filepath"
 	"strings"
@@ -276,6 +278,11 @@ func (s *Sandbox) resolveToRoot(name string) (*os.Root, string, error) {
 // Transient errors (e.g. "text file busy") are retried up to 3 times
 // with increasing delay. Non-transient errors are returned immediately.
 func (s *Sandbox) ReadFile(name string) ([]byte, error) {
+	if data, err := s.dockerReadFile(name); err != nil {
+		return nil, err
+	} else if data != nil {
+		return data, nil
+	}
 	root, rel, err := s.resolveToRoot(name)
 	if err != nil {
 		return nil, err
@@ -303,6 +310,13 @@ func (s *Sandbox) ReadFile(name string) ([]byte, error) {
 // WriteFile writes data to the named file within the sandbox, creating it if
 // necessary (parent directories are created automatically).
 func (s *Sandbox) WriteFile(name string, data []byte, perm os.FileMode) error {
+	sess, err := workerDockerSession()
+	if err != nil {
+		return err
+	}
+	if sess != nil {
+		return s.dockerWriteFile(name, data, perm)
+	}
 	root, rel, err := s.resolveToRoot(name)
 	if err != nil {
 		return err
@@ -327,15 +341,39 @@ func (s *Sandbox) WriteFile(name string, data []byte, perm os.FileMode) error {
 
 // Open opens a file for reading within the sandbox.
 func (s *Sandbox) Open(name string) (*os.File, error) {
-	root, rel, err := s.resolveToRoot(name)
-	if err != nil {
+	if sess, err := workerDockerSession(); err != nil {
 		return nil, err
+	} else if sess != nil {
+		data, err := s.dockerReadFile(name)
+		if err != nil {
+			return nil, err
+		}
+		tf, err := os.CreateTemp("", "pi-docker-open-*")
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tf.Write(data); err != nil {
+			tf.Close()
+			os.Remove(tf.Name())
+			return nil, err
+		}
+		if _, err := tf.Seek(0, 0); err != nil {
+			tf.Close()
+			os.Remove(tf.Name())
+			return nil, err
+		}
+		return tf, nil
 	}
-	return root.Open(rel)
+	return s.openHost(name)
 }
 
 // Stat returns FileInfo for a path within the sandbox.
 func (s *Sandbox) Stat(name string) (os.FileInfo, error) {
+	if info, err := s.dockerStat(name); err != nil {
+		return nil, err
+	} else if info != nil {
+		return info, nil
+	}
 	root, rel, err := s.resolveToRoot(name)
 	if err != nil {
 		return nil, err
@@ -359,6 +397,20 @@ func (s *Sandbox) ReadDir(name string) ([]os.DirEntry, error) {
 
 // MkdirAll creates a directory path within the sandbox.
 func (s *Sandbox) MkdirAll(name string, perm os.FileMode) error {
+	if sess, err := workerDockerSession(); err != nil {
+		return err
+	} else if sess != nil {
+		cp, err := s.containerPath(name)
+		if err != nil {
+			return err
+		}
+		ctx := context.Background()
+		cmd := exec.CommandContext(ctx, sess.bin, "exec", "-i", sess.container, "mkdir", "-p", cp)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("docker mkdir: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
 	root, rel, err := s.resolveToRoot(name)
 	if err != nil {
 		return err

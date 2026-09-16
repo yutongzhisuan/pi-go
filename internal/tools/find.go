@@ -41,6 +41,9 @@ func findHandler(sb *Sandbox, input FindInput) (FindOutput, error) {
 	if input.Pattern == "" {
 		return FindOutput{}, fmt.Errorf("pattern is required")
 	}
+	if out, ok, err := findViaWorkerDocker(sb, input); ok || err != nil {
+		return out, err
+	}
 
 	searchPath := input.Path
 	if searchPath == "" {

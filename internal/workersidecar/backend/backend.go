@@ -133,7 +133,8 @@ func (b *Backend) RunSession(ctx context.Context, params workersidecar.RunParams
 	if taskKey == "" {
 		taskKey = params.RunID
 	}
-	return b.collectResults(ctx, params.RunID, taskKey, proc)
+	result := b.collectResults(ctx, params.RunID, taskKey, proc)
+	return responses.WrapRunResult(result, parsed, params.TaskID, params.Model)
 }
 
 func buildGoal(params workersidecar.RunParams) string {
@@ -185,6 +186,9 @@ func (b *Backend) executorEnv(params workersidecar.RunParams, resolvedToolsets [
 	}
 	if params.ResumeFromCheckpoint != "" {
 		env = append(env, "PI_ACP_RESUME_CHECKPOINT="+params.ResumeFromCheckpoint)
+	}
+	if b.cfg.Sandbox != nil {
+		env = append(env, "PI_WORKER_SANDBOX_DOCKER=1")
 	}
 	if dockerSession != nil {
 		if bin, err := sandbox.FindDocker(); err == nil {

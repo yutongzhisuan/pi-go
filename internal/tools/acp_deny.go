@@ -40,6 +40,15 @@ func acpLocalConfinedActive() bool {
 }
 
 func checkACPDeny(command string) error {
+	if !acpLocalConfinedActive() {
+		return nil
+	}
+	if desc, blocked := confined.MatchHardline(command); blocked {
+		return fmt.Errorf(
+			"BLOCKED (hardline): %s (local-confined worker sidecar policy)",
+			desc,
+		)
+	}
 	rules := acpDenyRulesFromEnv()
 	if len(rules) == 0 {
 		return nil
