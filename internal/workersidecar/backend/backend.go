@@ -11,7 +11,9 @@ import (
 
 	"github.com/dimetron/pi-go/internal/subagent"
 	"github.com/dimetron/pi-go/internal/workersidecar"
+	"github.com/dimetron/pi-go/internal/workersidecar/confined"
 	"github.com/dimetron/pi-go/internal/workersidecar/options"
+	"github.com/dimetron/pi-go/internal/workersidecar/sandbox"
 )
 
 const executorPreamble = "[sub-agent executor — headless platform sub-task; no master session context]\n" +
@@ -40,6 +42,8 @@ type Config struct {
 	CheckpointCallback CheckpointCallback
 	OnProcess          func(runID string, proc *subagent.Process)
 	Sidecar            options.SidecarOptions
+	Sandbox            *sandbox.Config
+	LocalConfined      bool
 }
 
 // New creates a new Backend with the given configuration.
@@ -73,7 +77,7 @@ func (b *Backend) RunSession(ctx context.Context, params workersidecar.RunParams
 		timeout = 600
 	}
 
-	env := b.executorEnv(params.ResolvedToolsets)
+	env := b.executorEnv(params, params.ResolvedToolsets)
 	opts := subagent.SpawnOpts{
 		AgentID:     params.RunID,
 		Model:       params.Model,
@@ -98,7 +102,11 @@ func (b *Backend) RunSession(ctx context.Context, params workersidecar.RunParams
 		b.cfg.OnProcess(params.RunID, proc)
 	}
 
-	return b.collectResults(ctx, params.RunID, proc)
+	taskKey := params.TaskID
+	if taskKey == "" {
+		taskKey = params.RunID
+	}
+	return b.collectResults(ctx, params.RunID, taskKey, proc)
 }
 
 func buildGoal(params workersidecar.RunParams) string {
@@ -116,8 +124,8 @@ func buildGoal(params workersidecar.RunParams) string {
 	return goal
 }
 
-func (b *Backend) executorEnv(resolvedToolsets []string) []string {
-	if !b.cfg.Stateless && len(resolvedToolsets) == 0 {
+func (b *Backend) executorEnv(params workersidecar.RunParams, resolvedToolsets []string) []string {
+	if !b.cfg.Stateless && len(resolvedToolsets) == 0 && b.cfg.Sandbox == nil && !b.cfg.LocalConfined {
 		return nil
 	}
 	var env []string
@@ -127,6 +135,19 @@ func (b *Backend) executorEnv(resolvedToolsets []string) []string {
 	}
 	if len(resolvedToolsets) > 0 {
 		env = append(env, "PI_ACP_RESOLVED_TOOLSETS="+strings.Join(resolvedToolsets, ","))
+	}
+	if b.cfg.Sandbox != nil {
+		env = append(env, b.cfg.Sandbox.EnvPairs()...)
+	}
+	if b.cfg.LocalConfined {
+		extra := b.cfg.Sidecar.LocalConfinedExtraDeny
+		if raw, err := confined.DenyRulesJSON(extra); err == nil {
+			env = append(env, "PI_ACP_DENY_RULES="+raw)
+		}
+		env = append(env, "PI_ACP_LOCAL_CONFINED=1")
+	}
+	if params.ResumeFromCheckpoint != "" {
+		env = append(env, "PI_ACP_RESUME_CHECKPOINT="+params.ResumeFromCheckpoint)
 	}
 	return env
 }
@@ -156,7 +177,7 @@ func (b *Backend) prepareWorkDir(runID string) (string, func(), error) {
 	return workDir, cleanup, nil
 }
 
-func (b *Backend) collectResults(ctx context.Context, runID string, proc *subagent.Process) workersidecar.RunResult {
+func (b *Backend) collectResults(ctx context.Context, runID, taskKey string, proc *subagent.Process) workersidecar.RunResult {
 	var resultText strings.Builder
 	var lastCheckpoint *workersidecar.CheckpointInfo
 	startTime := time.Now()
@@ -196,18 +217,22 @@ func (b *Backend) collectResults(ctx context.Context, runID string, proc *subage
 		emitProgress("tool: " + name)
 	}
 
-	maybeCheckpoint := func(summary string) {
-		if every <= 0 || b.cfg.CheckpointCallback == nil {
+	maybeCheckpoint := func(step int) {
+		if every <= 0 || step <= 0 || step%every != 0 {
 			return
 		}
 		checkpointSeq++
+		summary := fmt.Sprintf("step %d milestone", step)
 		cp := &workersidecar.CheckpointInfo{
-			CheckpointID: fmt.Sprintf("cp-%s-%d", runID, checkpointSeq),
+			CheckpointID: fmt.Sprintf("cp-%s-%d", taskKey, checkpointSeq),
 			Summary:      summary,
-			ResumeBlob:   resultText.String(),
+			Fields:       map[string]interface{}{"step": step},
+			ResumeBlob:   "",
 		}
 		lastCheckpoint = cp
-		b.cfg.CheckpointCallback(runID, cp)
+		if b.cfg.CheckpointCallback != nil {
+			b.cfg.CheckpointCallback(runID, cp)
+		}
 	}
 
 	for {
@@ -219,7 +244,7 @@ func (b *Backend) collectResults(ctx context.Context, runID string, proc *subage
 				Summary:    "Run cancelled",
 				ResultText: resultText.String(),
 				Error:      ctx.Err().Error(),
-				Checkpoint: lastCheckpoint,
+				Checkpoint: salvageCheckpoint(taskKey, stepCount, lastCheckpoint, resultText.String()),
 			}
 		case ev, ok := <-proc.Events():
 			if !ok {
@@ -232,16 +257,14 @@ func (b *Backend) collectResults(ctx context.Context, runID string, proc *subage
 			case "tool_call":
 				stepCount++
 				emitToolProgress(ev.Content)
-				if every > 0 && stepCount%every == 0 {
-					maybeCheckpoint(fmt.Sprintf("step %d", stepCount))
-				}
+				maybeCheckpoint(stepCount)
 			case "error":
 				return workersidecar.RunResult{
 					Status:     "failed",
 					Summary:    "Agent encountered an error",
 					ResultText: resultText.String(),
 					Error:      ev.Error,
-					Checkpoint: lastCheckpoint,
+					Checkpoint: salvageCheckpoint(taskKey, stepCount, lastCheckpoint, resultText.String()),
 				}
 			case "message_end":
 				duration := time.Since(startTime)
@@ -265,7 +288,7 @@ done:
 				Summary:    "Run cancelled",
 				ResultText: resultText.String(),
 				Error:      ctx.Err().Error(),
-				Checkpoint: lastCheckpoint,
+				Checkpoint: salvageCheckpoint(taskKey, stepCount, lastCheckpoint, resultText.String()),
 			}
 		}
 		return workersidecar.RunResult{
@@ -273,7 +296,7 @@ done:
 			Summary:    "Agent failed",
 			ResultText: resultText.String(),
 			Error:      err.Error(),
-			Checkpoint: lastCheckpoint,
+			Checkpoint: salvageCheckpoint(taskKey, stepCount, lastCheckpoint, resultText.String()),
 		}
 	}
 	if finalResult != "" {
@@ -290,4 +313,27 @@ done:
 // PiBinaryPath returns the path to the pi binary used for spawning.
 func (b *Backend) PiBinaryPath() (string, error) {
 	return exec.LookPath("pi")
+}
+
+// salvageCheckpoint ensures terminal runs expose a Hub-compatible checkpoint with resume_blob when possible.
+func salvageCheckpoint(taskKey string, stepCount int, last *workersidecar.CheckpointInfo, partial string) *workersidecar.CheckpointInfo {
+	if last != nil {
+		cp := *last
+		if cp.ResumeBlob == "" && strings.TrimSpace(partial) != "" {
+			cp.ResumeBlob = partial
+		}
+		if cp.Fields == nil && stepCount > 0 {
+			cp.Fields = map[string]interface{}{"step": stepCount}
+		}
+		return &cp
+	}
+	if strings.TrimSpace(partial) == "" {
+		return nil
+	}
+	return &workersidecar.CheckpointInfo{
+		CheckpointID: fmt.Sprintf("cp-%s-salvage", taskKey),
+		Summary:      "partial progress",
+		Fields:       map[string]interface{}{"step": stepCount},
+		ResumeBlob:   partial,
+	}
 }

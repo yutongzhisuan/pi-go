@@ -220,9 +220,9 @@ Socket permissions: `0600` (owner read/write only)
 
 - Master planner runs on the main `pi` agent (`--master-planner` / `PI_MASTER_PLANNER=1`), not in this subcommand.
 - No client-daemon host swap.
-- Docker sandbox: fail-closed refuse until container-per-task execution is implemented.
-- `--local-confined`: fail-closed refuse until pi-go bash deny globs match Hermes `DEFAULT_LOCAL_DENY_RULES`.
-- See `docs/superpowers/HERMES_PARITY_STATUS.md` for the full closed vs deferred list.
+- **Docker sandbox**: bash commands run in disposable `docker run --rm` containers; file tools still use the host filesystem sandbox (see parity doc).
+- **`--local-confined`**: deny globs apply to the bash tool only (not Hermes full approval stack / deobfuscation).
+- See `docs/superpowers/HERMES_PARITY_STATUS.md` for gaps and verify commands.
 
 ## Troubleshooting
 
@@ -244,18 +244,22 @@ Check:
 - Not a local-state toolset in stateless mode
 - Toolset name is correct (see mapping table)
 
-### Docker sandbox not implemented
+### Docker sandbox unavailable
 
-If you see "Docker sandbox not yet implemented", the sidecar refuses to start with `--sandbox docker` because container isolation is not yet complete. This is a fail-safe: the sidecar will not silently ignore the sandbox flag. Remove `--sandbox` to proceed without container isolation, or wait for Docker support to be implemented.
+If startup fails with `docker sandbox unavailable`, the Docker CLI is missing or the daemon is not reachable. The sidecar **does not** fall back to unsandboxed execution when `--sandbox docker` is set. Install/start Docker or omit `--sandbox`.
 
-## Phase 1 Limitations
+### Local-confined deny hit
 
-- **Docker sandbox**: Not yet implemented. Flag parsing and validation are complete, but container execution is not. The sidecar fails closed when `--sandbox docker` is requested.
-- **Local-confined deny rules**: Flag accepted but approval policy enforcement not implemented.
-- **Checkpoint/resume**: Fields present in wire protocol but full resume logic not implemented.
-- **Master planner**: Integration deferred to phase 2.
+When a bash command matches a deny glob, the tool returns `BLOCKED: command matches deny rule ...`. This is guardrail mode for trusted internal tasks, not a security boundary — use `--sandbox docker` for untrusted work.
 
-Use `--stateless` with the default toolset whitelist for secure remote task execution without Docker.
+## Limitations
+
+- **Docker sandbox**: bash-only; per-invocation containers; see `HERMES_PARITY_STATUS.md`.
+- **Local-confined**: bash-only deny matching (subset of Hermes `approvals.deny`).
+- **Checkpoint L2**: goal prepend + L1 step checkpoints; no full model-session replay.
+- **Master planner**: runs on main `pi`, not this subcommand.
+
+Use `--stateless` with the default toolset whitelist for secure remote task execution without shell tools.
 
 ## Testing & Validation
 

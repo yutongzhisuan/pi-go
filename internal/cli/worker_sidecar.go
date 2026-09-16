@@ -12,7 +12,6 @@ import (
 
 	"github.com/dimetron/pi-go/internal/subagent"
 	"github.com/dimetron/pi-go/internal/workersidecar/backend"
-	"github.com/dimetron/pi-go/internal/workersidecar/confined"
 	"github.com/dimetron/pi-go/internal/workersidecar/options"
 	"github.com/dimetron/pi-go/internal/workersidecar/profile"
 	"github.com/dimetron/pi-go/internal/workersidecar/rpc"
@@ -97,13 +96,19 @@ Master planner (main pi agent, not this subcommand): PI_MASTER_PLANNER=1 or pi -
 func runWorkerSidecar(cmd *cobra.Command, args []string) error {
 	stateless := workerStateless || workerSandbox != "" || workerLocalConfined
 
-	if err := sandbox.ValidateDockerStartup(workerSandbox); err != nil {
+	sandboxCfg, err := sandbox.ValidateMode(workerSandbox)
+	if err != nil {
 		return err
 	}
-	if err := confined.EnforceStartupPolicy(workerLocalConfined); err != nil {
-		return err
+	if sandboxCfg != nil {
+		*sandboxCfg = sandbox.FromFlags(
+			workerSandboxImage,
+			workerSandboxNetwork,
+			workerSandboxCPU,
+			workerSandboxMemoryMB,
+		)
+		sandboxCfg.ApplyEnv()
 	}
-	_ = confined.MergeRules(profile.ParseAllowedToolsets(workerLocalConfinedExtraDeny))
 
 	sidecarOpts := options.ParseSidecarOptions(
 		workerProgressMode,
@@ -146,6 +151,8 @@ func runWorkerSidecar(cmd *cobra.Command, args []string) error {
 		StateRoot:      stateRoot,
 		RuntimeBaseURL: rtCfg.BaseURL,
 		Sidecar:        sidecarOpts,
+		Sandbox:        sandboxCfg,
+		LocalConfined:  workerLocalConfined,
 		ProgressCallback: func(runID, summary string) {
 			srv.EnqueueProgress(runID, summary)
 		},

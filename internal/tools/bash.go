@@ -157,6 +157,9 @@ func bashHandler(sb *Sandbox, sup *BashSupervisor, ctx agent.Context, input Bash
 			"%q is a tool name, not a shell command — call the %s tool directly instead of typing it into the bash tool",
 			name, name)
 	}
+	if err := checkACPDeny(input.Command); err != nil {
+		return BashOutput{}, err
+	}
 
 	// Use background context if agent.Context is nil (e.g. in unit tests)
 	var parentCtx context.Context
