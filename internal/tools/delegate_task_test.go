@@ -83,17 +83,43 @@ func TestDelegateTask_NestedDelegateRefused(t *testing.T) {
 	}
 }
 
+func TestDelegateTask_NestedOrchestratorAllowed(t *testing.T) {
+	t.Setenv(EnvDelegatedChild, "1")
+	t.Setenv(EnvDelegateDepth, "1")
+	t.Setenv(EnvDelegateRole, "orchestrator")
+	t.Setenv(EnvDelegateMaxSpawnDepth, "2")
+	t.Cleanup(func() {
+		t.Setenv(EnvDelegatedChild, "")
+		t.Setenv(EnvDelegateDepth, "")
+		t.Setenv(EnvDelegateRole, "")
+		t.Setenv(EnvDelegateMaxSpawnDepth, "")
+	})
+
+	res := ResolvedDelegation{MaxSpawnDepth: 2}
+	if !CanDelegateAtCurrentDepth(res) {
+		t.Fatal("orchestrator child should pass depth gate when max_spawn_depth=2")
+	}
+}
+
 func TestDelegateTask_GatewayRefusalInChild(t *testing.T) {
 	t.Setenv(EnvDelegatedChild, "1")
-	t.Cleanup(func() { t.Setenv(EnvDelegatedChild, "") })
+	t.Setenv(EnvDelegateRole, "leaf")
+	t.Cleanup(func() {
+		t.Setenv(EnvDelegatedChild, "")
+		t.Setenv(EnvDelegateRole, "")
+	})
 
 	filtered := FilterToolsForDelegateChild([]tool.Tool{
 		stubTool{name: "gateway_dispatch_task"},
 		stubTool{name: "read"},
+		stubTool{name: "delegate_task"},
 	})
 	for _, tl := range filtered {
 		if strings.HasPrefix(tl.Name(), "gateway_") {
 			t.Fatalf("gateway tool %q should be filtered", tl.Name())
 		}
+	}
+	if len(filtered) != 1 || filtered[0].Name() != "read" {
+		t.Fatalf("filtered = %v", delegateToolNames(filtered))
 	}
 }

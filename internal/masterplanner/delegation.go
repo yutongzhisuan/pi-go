@@ -9,7 +9,7 @@ const envDelegatedChild = "PI_DELEGATED_CHILD"
 
 // DelegationRefusalJSON returns a Hermes-shaped refusal payload when running
 // inside a delegate_task child context, or empty when allowed.
-// pi-go sets PI_DELEGATED_CHILD=1 on delegate_task children when that flow lands.
+// pi-go sets PI_DELEGATED_CHILD=1 (and PI_DELEGATE_DEPTH / PI_DELEGATE_ROLE) on delegate_task children.
 func DelegationRefusalJSON() string {
 	v := strings.TrimSpace(strings.ToLower(os.Getenv(envDelegatedChild)))
 	switch v {

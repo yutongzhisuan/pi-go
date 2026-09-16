@@ -10,14 +10,19 @@ import (
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 
+	"github.com/dimetron/pi-go/internal/config"
 	"github.com/dimetron/pi-go/internal/subagent"
 )
 
-// DelegateTaskInput is the Hermes-compatible delegate_task surface (PR2 subset).
+// DelegateTaskInput is the Hermes-compatible delegate_task surface.
 type DelegateTaskInput struct {
 	Goal    string             `json:"goal,omitempty"`
 	Context string             `json:"context,omitempty"`
 	Tasks   []DelegateTaskItem `json:"tasks,omitempty"`
+	Role    string             `json:"role,omitempty"`
+	Action  string             `json:"action,omitempty"`
+	AgentID string             `json:"agent_id,omitempty"`
+	Message string             `json:"message,omitempty"`
 }
 
 // DelegateTaskItem is one parallel delegated subtask.
@@ -28,8 +33,9 @@ type DelegateTaskItem struct {
 
 // DelegateTaskOutput aggregates child summaries for the parent planner.
 type DelegateTaskOutput struct {
-	Results []AgentResult `json:"results"`
-	Summary string        `json:"summary"`
+	Results  []AgentResult        `json:"results,omitempty"`
+	Children []DelegateChildEntry `json:"children,omitempty"`
+	Summary  string               `json:"summary"`
 }
 
 type delegateWorkItem struct {
@@ -38,7 +44,7 @@ type delegateWorkItem struct {
 
 // NewDelegateTaskTool creates the Hermes delegate_task tool wired to an Orchestrator.
 func NewDelegateTaskTool(orch *subagent.Orchestrator) (tool.Tool, error) {
-	desc := `Delegate work to isolated child agents (Hermes-compatible). Provide either goal or tasks[] (each with goal and optional context); optional top-level context applies to a single goal. Children run with a fresh session and return summaries only — not intermediate tool traces. Over max_concurrent_children returns an error.`
+	desc := `Delegate work to isolated child agents (Hermes-compatible). Spawn: goal or tasks[] (+ optional context, role leaf|orchestrator). Management: action=list (active children), action=steer (agent_id + message), action=interrupt (agent_id). Children use fresh sessions; parent sees summaries only. Over max_concurrent_children returns an error. max_spawn_depth controls nesting (orchestrator children may spawn leaf grandchildren when depth>=2).`
 
 	return newTool("delegate_task", desc,
 		func(ctx agent.Context, input DelegateTaskInput) (DelegateTaskOutput, error) {
@@ -53,9 +59,39 @@ func NewDelegateTaskTool(orch *subagent.Orchestrator) (tool.Tool, error) {
 }
 
 func delegateTaskHandler(ctx agent.Context, orch *subagent.Orchestrator, input DelegateTaskInput) (DelegateTaskOutput, error) {
-	if IsDelegateChild() {
+	action := strings.TrimSpace(strings.ToLower(input.Action))
+	if action == "" {
+		action = "spawn"
+	}
+	switch action {
+	case "list":
+		return delegateTaskList(orch)
+	case "steer":
+		msg := strings.TrimSpace(input.Message)
+		if msg == "" {
+			msg = strings.TrimSpace(input.Context)
+		}
+		return delegateTaskSteer(orch, input.AgentID, msg)
+	case "interrupt":
+		return delegateTaskInterrupt(orch, input.AgentID)
+	case "spawn":
+		return delegateTaskSpawn(ctx, orch, input)
+	default:
+		return DelegateTaskOutput{}, fmt.Errorf("unknown delegate_task action %q", action)
+	}
+}
+
+func delegateTaskSpawn(ctx agent.Context, orch *subagent.Orchestrator, input DelegateTaskInput) (DelegateTaskOutput, error) {
+	var cfgPtr *config.Config
+	if orch != nil {
+		cfgPtr = orch.Config()
+	}
+	res := ResolveDelegation(cfgPtr)
+
+	if !CanDelegateAtCurrentDepth(res) {
 		return DelegateTaskOutput{}, fmt.Errorf(
-			"delegate_task refused: max_spawn_depth=1 (delegated children cannot delegate again)",
+			"delegate_task refused: depth %d at max_spawn_depth=%d or leaf child cannot delegate",
+			DelegateDepth(), res.MaxSpawnDepth,
 		)
 	}
 
@@ -64,7 +100,7 @@ func delegateTaskHandler(ctx agent.Context, orch *subagent.Orchestrator, input D
 		return DelegateTaskOutput{}, err
 	}
 
-	max := MaxConcurrentDelegateChildren()
+	max := res.MaxConcurrentChildren
 	if len(items) > max {
 		return DelegateTaskOutput{}, fmt.Errorf(
 			"too many delegated tasks: %d exceeds max_concurrent_children (%d)",
@@ -77,14 +113,16 @@ func delegateTaskHandler(ctx agent.Context, orch *subagent.Orchestrator, input D
 		return DelegateTaskOutput{}, err
 	}
 
+	childRole := ResolveSpawnRole(input.Role, DelegateDepth(), res)
+	parentDepth := DelegateDepth()
 	start := time.Now()
 	spawnCtx := resolveContext(ctx)
 
 	if len(items) == 1 {
-		result := runDelegateStep(spawnCtx, orch, agentCfg, items[0].Goal)
+		result := runDelegateStep(spawnCtx, orch, agentCfg, items[0].Goal, parentDepth, childRole)
 		return DelegateTaskOutput{
 			Results: []AgentResult{result},
-			Summary: fmt.Sprintf("delegate: 1 task, %s in %s", result.Status, result.Duration),
+			Summary: fmt.Sprintf("delegate: 1 task (%s), %s in %s", childRole, result.Status, result.Duration),
 		}, nil
 	}
 
@@ -94,7 +132,7 @@ func delegateTaskHandler(ctx agent.Context, orch *subagent.Orchestrator, input D
 		wg.Add(1)
 		go func(idx int, goal string) {
 			defer wg.Done()
-			results[idx] = runDelegateStep(spawnCtx, orch, agentCfg, goal)
+			results[idx] = runDelegateStep(spawnCtx, orch, agentCfg, goal, parentDepth, childRole)
 		}(i, item.Goal)
 	}
 	wg.Wait()
@@ -173,13 +211,13 @@ func resolveDelegateAgent(orch *subagent.Orchestrator) (subagent.AgentConfig, er
 	)
 }
 
-func runDelegateStep(ctx context.Context, orch *subagent.Orchestrator, agentCfg subagent.AgentConfig, prompt string) AgentResult {
+func runDelegateStep(ctx context.Context, orch *subagent.Orchestrator, agentCfg subagent.AgentConfig, prompt string, parentDepth int, childRole string) AgentResult {
 	stepStart := time.Now()
 
 	events, agentID, err := orch.Spawn(ctx, subagent.SpawnInput{
 		Agent:  agentCfg,
 		Prompt: prompt,
-		Env:    DelegateChildEnv(),
+		Env:    DelegateChildEnv(parentDepth, childRole),
 	})
 	if err != nil {
 		return AgentResult{
@@ -202,7 +240,6 @@ func runDelegateStep(ctx context.Context, orch *subagent.Orchestrator, agentCfg 
 	}
 }
 
-// consumeDelegateEvents collects assistant text only — child tool_call/tool_result events are not surfaced to the parent.
 func consumeDelegateEvents(events <-chan subagent.Event) (resultText, status, errMsg, sessID string) {
 	var result strings.Builder
 	status = "completed"
