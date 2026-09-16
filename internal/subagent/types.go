@@ -38,6 +38,7 @@ type AgentInput struct {
 	Background   bool   `json:"background,omitempty"`    // Run in background
 	SkipCleanup  bool   `json:"skip_cleanup,omitempty"`  // Deprecated: worktree cleanup is always deferred to the caller or shutdown
 	Timeout      int    `json:"timeout,omitempty"`       // Absolute timeout override in milliseconds
+	Env          []string `json:"env,omitempty"`           // Additional environment variables for the child
 
 	// Attribution records where the spawned agent sits in a run tree.
 	Attribution *session.AgentContext `json:"attribution,omitempty"`
@@ -74,6 +75,7 @@ func (a AgentInput) ToSpawnInput() (SpawnInput, error) {
 		Background:   a.Background,
 		SkipCleanup:  a.SkipCleanup,
 		Timeout:      a.Timeout,
+		Env:          a.Env,
 		Attribution:  a.Attribution,
 	}, nil
 }

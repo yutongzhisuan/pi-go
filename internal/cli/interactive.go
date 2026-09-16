@@ -234,6 +234,7 @@ func deferredInit(
 		return
 	}
 	coreTools = adjustToolsForACPExecutor(mpTools)
+	coreTools = tools.AdjustToolsForDelegateChild(coreTools)
 
 	// Stream live shell output to the same channel the subagent cards use. The
 	// prefix keeps the two streams apart; the non-blocking send in agentEventCB

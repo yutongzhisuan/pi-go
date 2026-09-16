@@ -286,6 +286,8 @@ func (a *Agent) buildRuntime(ctx context.Context, o options, cfg *config.Config,
 	}
 	coreTools = append(coreTools, o.tools...)
 
+	coreTools = tools.AdjustToolsForDelegateChild(coreTools)
+
 	return &runtimeParts{
 		sandbox:       sandbox,
 		orch:          orch,
