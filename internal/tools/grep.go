@@ -342,8 +342,22 @@ func grepWithRG(sb *Sandbox, input GrepInput, searchPath string) (GrepOutput, er
 	// Add the pattern and path
 	args = append(args, input.Pattern, searchPath)
 
-	cmd := exec.CommandContext(ctx, "rg", args...)
-	cmd.Dir = sb.Dir()
+	var cmd *exec.Cmd
+	if sess, err := workerDockerSession(); err != nil {
+		return GrepOutput{}, err
+	} else if sess != nil {
+		cp, err := sb.containerPath(searchPath)
+		if err != nil {
+			return GrepOutput{}, err
+		}
+		args[len(args)-1] = cp
+		cmd = exec.CommandContext(ctx, sess.bin, append([]string{
+			"exec", "-i", "-w", sess.workdir, sess.container, "rg",
+		}, args...)...)
+	} else {
+		cmd = exec.CommandContext(ctx, "rg", args...)
+		cmd.Dir = sb.Dir()
+	}
 
 	output, err := cmd.Output()
 	if err != nil {

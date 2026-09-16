@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -53,6 +54,11 @@ func shellCommand(ctx context.Context, script string) *exec.Cmd {
 
 // shellCommandInDir runs script with an explicit host working directory (docker sandbox mounts it).
 func shellCommandInDir(ctx context.Context, hostWorkDir, script string) (*exec.Cmd, error) {
+	if workerDockerRequired() {
+		if strings.TrimSpace(os.Getenv(envWorkerDockerContainer)) == "" {
+			return nil, fmt.Errorf("docker sandbox session missing (PI_WORKER_DOCKER_CONTAINER unset)")
+		}
+	}
 	if cmd, ok := workerDockerExecCommand(ctx, script); ok {
 		return cmd, nil
 	}

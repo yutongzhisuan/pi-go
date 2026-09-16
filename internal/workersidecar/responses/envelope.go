@@ -13,9 +13,14 @@ const (
 
 // ParsedEnvelope is the result of parsing params["responses.v1"] (Hermes subset).
 type ParsedEnvelope struct {
-	Present     bool
-	UserMessage string
-	ErrorCode   string
+	Present         bool
+	UserMessage     string
+	ErrorCode       string
+	ResponseID      string
+	Model           string
+	Instructions    string
+	MaxResultBytes  int
+	RequestEcho     map[string]interface{}
 }
 
 // ParseEnvelope parses the OpenAI Responses envelope when present in task params.
@@ -41,10 +46,26 @@ func ParseEnvelope(params map[string]interface{}, goal, boundModel string) Parse
 	}
 	instructions := stringField(req["instructions"])
 	userMessage := normalizeUserMessage(req["input"], instructions, goal)
-	_ = boundModel // echo-only in Hermes; execution model comes from run.model
+	responseID := stringField(env["response_id"])
+	reqModel := stringField(req["model"])
+	echoModel := reqModel
+	if echoModel == "" {
+		echoModel = strings.TrimSpace(boundModel)
+	}
+	maxBytes := defaultMaxResultBytes
+	if limits, ok := env["limits"].(map[string]interface{}); ok {
+		if v, ok := limits["max_result_bytes"].(float64); ok && v > 0 {
+			maxBytes = int(v)
+		}
+	}
 	return ParsedEnvelope{
-		Present:     true,
-		UserMessage: userMessage,
+		Present:        true,
+		UserMessage:    userMessage,
+		ResponseID:     responseID,
+		Model:          echoModel,
+		Instructions:   instructions,
+		MaxResultBytes: maxBytes,
+		RequestEcho:    req,
 	}
 }
 

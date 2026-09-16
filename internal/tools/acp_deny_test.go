@@ -13,6 +13,14 @@ func TestCheckACPDenyBlocksWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestCheckACPDenyHardlineBeforeGlobs(t *testing.T) {
+	t.Setenv(envACPLocalConfined, "1")
+	t.Setenv(envACPDenyRules, `[]`)
+	if err := checkACPDeny("rm -rf /"); err == nil {
+		t.Fatal("expected hardline block")
+	}
+}
+
 func TestCheckACPDenyNoRulesWhenInactive(t *testing.T) {
 	os.Unsetenv(envACPLocalConfined)
 	os.Unsetenv(envACPDenyRules)
