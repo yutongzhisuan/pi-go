@@ -2,7 +2,6 @@ package backend
 
 import (
 	"testing"
-	"time"
 
 	"github.com/dimetron/pi-go/internal/workersidecar"
 )
@@ -22,21 +21,20 @@ func TestMergeAssistantTextFallsBackToProcessResult(t *testing.T) {
 }
 
 func TestSummaryForCompletionPrefersAssistantText(t *testing.T) {
-	got := summaryForCompletion("OK", time.Second)
+	got := summaryForCompletion("OK")
 	if got != "OK" {
 		t.Fatalf("summary = %q want OK", got)
 	}
 }
 
-func TestSummaryForCompletionDurationFallback(t *testing.T) {
-	got := summaryForCompletion("", 2*time.Second)
-	if got != "Completed in 2s" {
-		t.Fatalf("summary = %q", got)
+func TestSummaryForCompletionEmptyWhenNoText(t *testing.T) {
+	if got := summaryForCompletion(""); got != "" {
+		t.Fatalf("summary = %q want empty", got)
 	}
 }
 
 func TestCompletedRunResultMapsAssistantText(t *testing.T) {
-	out := completedRunResult("OK", time.Millisecond, nil)
+	out := completedRunResult("OK", nil)
 	if out.ResultText != "OK" || out.Summary != "OK" {
 		t.Fatalf("result=%+v", out)
 	}
@@ -45,10 +43,16 @@ func TestCompletedRunResultMapsAssistantText(t *testing.T) {
 	}
 }
 
-func TestCompletedRunResultNotDurationSummaryWhenTextPresent(t *testing.T) {
-	out := completedRunResult("OK", 0, nil)
+func TestCompletedRunResultFailsWhenAssistantTextEmpty(t *testing.T) {
+	out := completedRunResult("", nil)
+	if out.Status != "failed" {
+		t.Fatalf("status = %q want failed", out.Status)
+	}
+	if out.ErrorCode != "empty_assistant_output" {
+		t.Fatalf("error_code = %q", out.ErrorCode)
+	}
 	if out.Summary == "Completed in 0s" {
-		t.Fatal("summary must not be duration-only when assistant text exists")
+		t.Fatal("must not emit duration-only summary when assistant text is missing")
 	}
 }
 
@@ -57,14 +61,14 @@ func TestSummaryForCompletionTruncatesLongText(t *testing.T) {
 	for i := range long {
 		long[i] = 'a'
 	}
-	got := summaryForCompletion(string(long), time.Second)
+	got := summaryForCompletion(string(long))
 	if len(got) != summaryMaxLen {
 		t.Fatalf("len=%d want %d", len(got), summaryMaxLen)
 	}
 }
 
 func TestCompletedRunResultUsagePresent(t *testing.T) {
-	out := completedRunResult("x", time.Second, &workersidecar.CheckpointInfo{CheckpointID: "cp-1"})
+	out := completedRunResult("x", &workersidecar.CheckpointInfo{CheckpointID: "cp-1"})
 	if out.Usage == nil {
 		t.Fatal("expected usage block")
 	}

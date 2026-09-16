@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -230,7 +231,6 @@ func (b *Backend) prepareWorkDir(runID string) (string, func(), error) {
 func (b *Backend) collectResults(ctx context.Context, runID, taskKey string, proc *subagent.Process) workersidecar.RunResult {
 	var resultText strings.Builder
 	var lastCheckpoint *workersidecar.CheckpointInfo
-	startTime := time.Now()
 	stepCount := 0
 	checkpointSeq := 0
 	every := b.cfg.Sidecar.CheckpointEverySteps
@@ -324,7 +324,6 @@ func (b *Backend) collectResults(ctx context.Context, runID, taskKey string, pro
 	}
 
 done:
-	duration := time.Since(startTime)
 	finalResult, err := proc.Wait()
 	assistantText := mergeAssistantText(resultText.String(), finalResult)
 	if err != nil {
@@ -345,7 +344,11 @@ done:
 			Checkpoint: salvageCheckpoint(taskKey, stepCount, lastCheckpoint, assistantText),
 		}
 	}
-	return completedRunResult(assistantText, duration, lastCheckpoint)
+	result := completedRunResult(assistantText, lastCheckpoint)
+	if result.ErrorCode == "empty_assistant_output" {
+		log.Printf("workersidecar: run %s finished with no assistant text from executor child", runID)
+	}
+	return result
 }
 
 // PiBinaryPath returns the path to the pi binary used for spawning.

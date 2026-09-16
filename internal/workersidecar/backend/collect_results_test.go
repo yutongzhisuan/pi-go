@@ -28,9 +28,6 @@ func TestCollectResultsMergesProcessResult(t *testing.T) {
 	if result.Summary != "OK" {
 		t.Fatalf("summary = %q want OK", result.Summary)
 	}
-	if result.Summary == "Completed in 0s" {
-		t.Fatal("duration-only summary must not win over assistant text")
-	}
 }
 
 func TestCollectResultsStreamedTextWinsOverWait(t *testing.T) {
@@ -46,5 +43,18 @@ func TestCollectResultsStreamedTextWinsOverWait(t *testing.T) {
 	result := b.collectResults(context.Background(), "run-1", "task-1", proc)
 	if result.ResultText != "streamed" {
 		t.Fatalf("result_text = %q want streamed", result.ResultText)
+	}
+}
+
+func TestCollectResultsFailsWhenNoAssistantText(t *testing.T) {
+	proc := subagent.NewFixedProcess(
+		[]subagent.Event{{Type: "message_start"}, {Type: "message_end"}},
+		"",
+		nil,
+	)
+	b := New(Config{Sidecar: options.SidecarOptions{}})
+	result := b.collectResults(context.Background(), "run-empty", "task-1", proc)
+	if result.Status != "failed" || result.ErrorCode != "empty_assistant_output" {
+		t.Fatalf("result = %+v", result)
 	}
 }
