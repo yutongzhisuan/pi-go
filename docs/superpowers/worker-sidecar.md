@@ -255,3 +255,144 @@ If you see "Docker sandbox not yet implemented", the sidecar refuses to start wi
 - **Master planner**: Integration deferred to phase 2.
 
 Use `--stateless` with the default toolset whitelist for secure remote task execution without Docker.
+
+## Testing & Validation
+
+### Integration Smoke Tests
+
+Run the included integration tests to verify the full RPC flow:
+
+```bash
+# Run integration tests (includes HTTP and Unix socket)
+cd internal/workersidecar/rpc
+go test -v -run TestIntegrationSmoke
+
+# Run all tests including golden fixtures
+go test -v ./...
+```
+
+The integration tests validate:
+- ✅ `acp.toolsets` → returns allowed toolset list
+- ✅ `acp.run` → executes with Hermes-shaped result
+- ✅ `acp.progress` → drains queued summaries
+- ✅ `acp.status` → reports run state
+- ✅ `acp.cancel` → cancels active run
+- ✅ Duplicate `run_id` → returns proper error
+- ✅ Golden fixture field compliance
+
+### Manual E2E with Real Worker
+
+To test with an actual `task-relay` Worker (`acp-remote` client):
+
+#### 1. Start the sidecar
+
+```bash
+# Unix socket (default path for drop-in compatibility)
+pi worker-sidecar --stateless
+
+# Or HTTP for easier debugging
+pi worker-sidecar --http --port 9105 --stateless
+```
+
+#### 2. Configure Worker to point at the socket
+
+For Unix socket mode (recommended):
+```bash
+export TASK_RELAY_ACP_RPC_SOCKET=~/.xhermes/sub_agent/acp.sock
+```
+
+For HTTP mode:
+```bash
+export TASK_RELAY_ACP_RPC_HTTP=1
+export TASK_RELAY_ACP_RPC_HOST=127.0.0.1
+export TASK_RELAY_ACP_RPC_PORT=9105
+```
+
+#### 3. Run Worker with test task
+
+From the Worker (`acp-remote`) side:
+
+```python
+# Example: task-relay Worker test
+import asyncio
+from acp_remote import RemoteAcpBackend
+
+async def test_sidecar():
+    backend = RemoteAcpBackend(
+        socket_path="~/.xhermes/sub_agent/acp.sock"  # or HTTP endpoint
+    )
+    
+    # Test toolsets announcement
+    toolsets = await backend.rpc_call("acp.toolsets", {})
+    print(f"Available toolsets: {toolsets['toolsets']}")
+    
+    # Run a simple task
+    result = await backend.rpc_call("acp.run", {
+        "run_id": "test-123",
+        "goal": "List files in the current directory",
+        "toolsets": ["file"],
+        "timeout_seconds": 60
+    })
+    
+    print(f"Status: {result['status']}")
+    print(f"Summary: {result['summary']}")
+    print(f"Result: {result['result_text']}")
+    
+asyncio.run(test_sidecar())
+```
+
+#### 4. Verify wire compatibility checklist
+
+- [ ] `acp.toolsets` returns array matching `--executor-toolsets`
+- [ ] `acp.run` returns with `status`, `summary`, `result_text`, `usage` fields
+- [ ] `acp.run` with invalid model returns `error_code: model_unavailable`
+- [ ] `acp.progress` drains summaries (poll during long run)
+- [ ] `acp.status` reports `running: true` for active run
+- [ ] `acp.cancel` stops active run and returns `cancelled: true`
+- [ ] Duplicate `run_id` returns JSON-RPC error (code -32000)
+- [ ] All field names match Hermes exactly (no camelCase drift)
+
+#### 5. Test with Hub integration (optional)
+
+If you have access to a Hub instance:
+
+1. Configure node to use this sidecar
+2. Submit task through Hub → Worker → sidecar chain
+3. Verify task completes and results propagate back
+4. Check progress updates arrive at Hub
+5. Test cancel from Hub UI
+
+### Debugging
+
+Enable verbose logging:
+```bash
+# Start with logging
+pi worker-sidecar --stateless 2>&1 | tee sidecar.log
+
+# In another terminal, monitor socket
+ss -lx | grep acp.sock  # Unix socket
+netstat -tlnp | grep 9105  # HTTP mode
+```
+
+Check RPC calls:
+```bash
+# Unix socket test
+echo '{"jsonrpc":"2.0","method":"acp.toolsets","id":1}' | \
+  socat - UNIX-CONNECT:$HOME/.xhermes/sub_agent/acp.sock
+
+# HTTP test  
+curl -X POST http://127.0.0.1:9105/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"acp.toolsets","id":1}'
+```
+
+Expected response:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "toolsets": ["file", "web", "todo"]
+  }
+}
+```

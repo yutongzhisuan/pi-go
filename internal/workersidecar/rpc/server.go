@@ -14,13 +14,17 @@ import (
 
 	"github.com/dimetron/pi-go/internal/subagent"
 	"github.com/dimetron/pi-go/internal/workersidecar"
-	"github.com/dimetron/pi-go/internal/workersidecar/backend"
 	"github.com/dimetron/pi-go/internal/workersidecar/profile"
 )
 
+// BackendRunner defines the interface for running agent sessions.
+type BackendRunner interface {
+	RunSession(ctx context.Context, params workersidecar.RunParams) workersidecar.RunResult
+}
+
 // Server implements the JSON-RPC 2.0 server for Worker ACP sidecar.
 type Server struct {
-	backend  *backend.Backend
+	backend  BackendRunner
 	profile  *profile.Profile
 	runs     map[string]*runState
 	progress map[string]*progressBucket
@@ -44,7 +48,7 @@ type progressBucket struct {
 
 // Config holds configuration for the RPC server.
 type Config struct {
-	Backend *backend.Backend
+	Backend BackendRunner
 	Profile *profile.Profile
 }
 
