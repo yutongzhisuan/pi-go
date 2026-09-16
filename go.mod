@@ -22,6 +22,7 @@ require (
 	github.com/kagent-dev/mockllm v0.0.6
 	github.com/knights-analytics/hugot v0.7.8
 	github.com/mattn/go-runewidth v0.0.28
+	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/muesli/reflow v0.3.0
 	github.com/muesli/termenv v0.16.0

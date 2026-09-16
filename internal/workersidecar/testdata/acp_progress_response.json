@@ -1,0 +1,11 @@
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "result": {
+    "summaries": [
+      "Reading directory contents",
+      "Found 5 files",
+      "Formatting response"
+    ]
+  }
+}
