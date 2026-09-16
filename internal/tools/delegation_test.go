@@ -20,7 +20,7 @@ func TestIsDelegateBlockedTool(t *testing.T) {
 		name  string
 		want  bool
 	}{
-		{"delegate_task", true},
+		{"delegate_task", false},
 		{"clarify", true},
 		{"gateway_dispatch_task", true},
 		{"gateway_list_models", true},
@@ -66,12 +66,24 @@ func TestFilterToolsForDelegateChild_ParentUnfiltered(t *testing.T) {
 
 func TestMaxConcurrentDelegateChildren(t *testing.T) {
 	t.Setenv(EnvDelegateMaxConcurrent, "")
-	if got := MaxConcurrentDelegateChildren(); got != 3 {
+	if got := MaxConcurrentDelegateChildren(nil); got != 3 {
 		t.Fatalf("default = %d, want 3", got)
 	}
 	t.Setenv(EnvDelegateMaxConcurrent, "5")
-	if got := MaxConcurrentDelegateChildren(); got != 5 {
+	if got := MaxConcurrentDelegateChildren(nil); got != 5 {
 		t.Fatalf("override = %d, want 5", got)
+	}
+}
+
+func TestIsDelegateBlockedTool_LeafChildBlocksDelegateTask(t *testing.T) {
+	t.Setenv(EnvDelegatedChild, "1")
+	t.Setenv(EnvDelegateRole, "leaf")
+	t.Cleanup(func() {
+		t.Setenv(EnvDelegatedChild, "")
+		t.Setenv(EnvDelegateRole, "")
+	})
+	if !IsDelegateBlockedTool("delegate_task") {
+		t.Fatal("leaf delegate child should not get delegate_task")
 	}
 }
 

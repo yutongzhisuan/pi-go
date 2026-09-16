@@ -100,6 +100,7 @@ type agentState struct {
 	Worktree    bool   // whether a worktree was created
 	SkipCleanup bool   // don't auto-cleanup worktree on completion (for gate validation)
 	Status      string // "running", "completed", "failed", "canceled", "killed"
+	steerQueue  []string
 }
 
 // NewOrchestrator creates an Orchestrator from config.
@@ -802,6 +803,43 @@ func validateAgentForCancel(state *agentState, agentID string) error {
 	return nil
 }
 
+// Steer queues guidance for a running agent. The child subprocess does not yet
+// consume the queue; callers use this for Hermes delegate_task action=steer parity.
+func (o *Orchestrator) Steer(agentID, message string) error {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return fmt.Errorf("steer message is required")
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	state := o.agents[agentID]
+	if err := validateAgentForCancel(state, agentID); err != nil {
+		return err
+	}
+	state.steerQueue = append(state.steerQueue, message)
+	return nil
+}
+
+// SteerQueue returns queued steer messages for an agent (test / introspection).
+func (o *Orchestrator) SteerQueue(agentID string) ([]string, bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	state, ok := o.agents[agentID]
+	if !ok {
+		return nil, false
+	}
+	out := append([]string(nil), state.steerQueue...)
+	return out, true
+}
+
+// Config returns the orchestrator's configuration snapshot (may be nil).
+func (o *Orchestrator) Config() *config.Config {
+	if o == nil {
+		return nil
+	}
+	return o.cfg
+}
+
 // Cancel cancels a running agent by ID.
 func (o *Orchestrator) Cancel(agentID string) error {
 	o.mu.Lock()
@@ -812,7 +850,9 @@ func (o *Orchestrator) Cancel(agentID string) error {
 		return err
 	}
 
-	state.Process.Cancel()
+	if state.Process != nil {
+		state.Process.Cancel()
+	}
 	state.Status = "canceled"
 	state.FinishedAt = time.Now()
 

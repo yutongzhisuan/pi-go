@@ -21,6 +21,29 @@ Design: [`docs/superpowers/specs/2026-09-16-hermes-l2-delegate-parity-design.md`
 - **Isolation**: child toolset = parent minus blocklist (`delegate_task`, `clarify`, `gateway_*`, Hermes equivalents including pi-go memory tools); fresh child session (goal/context prompt only); parent receives aggregated summary text, not child tool traces.
 - Master planner **`gateway_*`** refusal under `PI_DELEGATED_CHILD` (existing) applies to spawned children.
 
+## Closed in PR3 (Hermes delegate enhancements)
+
+### Role, depth, and management actions
+- **`role`**: `leaf` (default) / `orchestrator`. When `max_spawn_depth` is **1**, orchestrator requests **degrade to leaf** with a session-visible notice hook.
+- **`max_spawn_depth` 2–3** (config `delegation.max_spawn_depth`, env `PI_DELEGATE_MAX_SPAWN_DEPTH`): orchestrator children (`PI_DELEGATE_ROLE=orchestrator`) may call `delegate_task` to spawn **leaf** grandchildren; cost scales with pool concurrency × depth.
+- **`action=list`**: in-process active children (`id`, truncated `goal`, `status`) via Orchestrator tracking.
+- **`action=steer`**: queues guidance on the Orchestrator (`agent_id` + `message`); subprocess consumption is future work.
+- **`action=interrupt`**: cancels a running child via Orchestrator `Cancel`.
+
+### Config knobs (`~/.pi-go/config.json` → `delegation`)
+| Field | Default | Env override |
+|-------|---------|----------------|
+| `max_concurrent_children` | 3 | `PI_DELEGATE_MAX_CONCURRENT` |
+| `max_spawn_depth` | 1 | `PI_DELEGATE_MAX_SPAWN_DEPTH` |
+| `orchestrator_enabled` | false | `PI_DELEGATE_ORCHESTRATOR_ENABLED` |
+| `subagent_auto_approve` | false (deny) | `PI_SUBAGENT_AUTO_APPROVE` |
+
+Child env: `PI_DELEGATED_CHILD=1`, `PI_DELEGATE_DEPTH`, `PI_DELEGATE_ROLE` (orchestrator children retain `delegate_task` in the toolset when depth allows).
+
+### Master planner / worker-sidecar notes
+- Master planner: unchanged `gateway_*` refusal for any `PI_DELEGATED_CHILD` process; nested delegation is in-process planner only (not worker-sidecar RPC).
+- Worker-sidecar: no Hub/swarm changes; delegate trees remain the interactive planner + Orchestrator path.
+
 ## Carried from prior worker-sidecar parity (#10–#12)
 
 - ACP `result_text` / empty-assistant fail-closed, Docker file-tool remoting, L1 step checkpoints, local-confined deny globs, terminal Responses JSON wrap.
@@ -34,10 +57,11 @@ Design: [`docs/superpowers/specs/2026-09-16-hermes-l2-delegate-parity-design.md`
 | Modal / SSH backends | Product scope. |
 | Full Hermes `approvals.deny` / `DANGEROUS_PATTERNS` | Python-specific deobfuscation layer. |
 | L2 **model session** hot restore across checkpoints | Explicit non-goal; L1 blob/summary resume only. |
-| PR3 delegate enhancements | `role=orchestrator`, depth 2–3, `action=list\|steer\|interrupt`, config knobs — after PR2. |
+| Steer delivery into running child pi sessions | Queued on Orchestrator only; no stdin inject yet. |
+| Full YOLO approval UX | `subagent_auto_approve` config stub only (default deny). |
 
 ## Verify
 
 ```bash
-go test ./internal/tools/... ./internal/masterplanner/...
+go test ./internal/tools/... ./internal/subagent/... ./internal/masterplanner/...
 ```

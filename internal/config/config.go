@@ -134,6 +134,16 @@ type Config struct {
 	// into the global config file by an unrelated operation such as
 	// SaveDefaultRole. Read both together with LLMSSources.
 	InferredLLMS []LLMSSource `json:"-"`
+	// Delegation configures Hermes-style delegate_task limits (PR3).
+	Delegation *DelegationConfig `json:"delegation,omitempty"`
+}
+
+// DelegationConfig holds delegate_task orchestration knobs (Hermes PR3).
+type DelegationConfig struct {
+	MaxConcurrentChildren *int  `json:"max_concurrent_children,omitempty"`
+	MaxSpawnDepth         *int  `json:"max_spawn_depth,omitempty"`
+	OrchestratorEnabled   *bool `json:"orchestrator_enabled,omitempty"`
+	SubagentAutoApprove   *bool `json:"subagent_auto_approve,omitempty"`
 }
 
 // PalaceConfig holds settings for the MemPalace memory system.
